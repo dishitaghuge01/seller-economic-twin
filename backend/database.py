@@ -172,6 +172,12 @@ def create_tables() -> None:
     """
     with get_connection() as conn:
         with conn.cursor() as cur:
+            cur.execute("CREATE SCHEMA IF NOT EXISTS auth")
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS auth.users (
+                    id UUID PRIMARY KEY
+                )
+            """)
             cur.execute(CREATE_TABLES_SQL)
 
 
@@ -285,6 +291,11 @@ def enable_rls() -> None:
 def insert_seller(seller: Seller) -> None:
     with get_connection() as conn:
         with get_cursor(conn) as cur:
+            if seller.auth_user_id:
+                cur.execute(
+                    "INSERT INTO auth.users (id) VALUES (%s) ON CONFLICT (id) DO NOTHING",
+                    (seller.auth_user_id,)
+                )
             cur.execute(
                 """INSERT INTO sellers
                    (seller_id, seller_name, phone_number, language_preference,
@@ -308,6 +319,15 @@ def get_seller_by_phone(phone_number: str) -> Optional[Seller]:
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute("SELECT * FROM sellers WHERE phone_number = %s", (phone_number,))
+            row = cur.fetchone()
+    return _row_to_seller(row) if row else None
+
+
+def get_seller_by_auth_user_id(auth_user_id: str) -> Optional[Seller]:
+    """Used by the FastAPI auth dependency to resolve a seller from a JWT subject."""
+    with get_connection() as conn:
+        with get_cursor(conn) as cur:
+            cur.execute("SELECT * FROM sellers WHERE auth_user_id = %s", (auth_user_id,))
             row = cur.fetchone()
     return _row_to_seller(row) if row else None
 
