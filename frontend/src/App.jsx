@@ -3,26 +3,21 @@ import apiClient from "./apiClient.js";
 import SellerPanel from "./components/SellerPanel.jsx";
 import WhatsAppPanel from "./components/WhatsAppPanel.jsx";
 import LoginScreen from "./components/LoginScreen.jsx";
-import supabase from "./supabaseClient.js";
 
 const FALLBACK_SELLER_ID = import.meta.env.VITE_SELLER_ID || "riya_sharma";
-const AUTH_ENABLED = Boolean(supabase);
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("seller");
-  const [session, setSession] = useState(null);
   const [sellerProfile, setSellerProfile] = useState(null);
-  const [authReady, setAuthReady] = useState(!AUTH_ENABLED);
+  const [authReady, setAuthReady] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState(null);
 
-  const loadSellerProfile = async (currentSession) => {
-    if (!currentSession) {
-      setSellerProfile(null);
-      setProfileError(null);
-      return;
-    }
+  const clearStoredToken = () => {
+    localStorage.removeItem("seller_twin_token");
+  };
 
+  const loadSellerProfile = async () => {
     setProfileLoading(true);
     setProfileError(null);
 
@@ -31,7 +26,10 @@ export default function App() {
       setSellerProfile(profile);
     } catch (error) {
       setSellerProfile(null);
-      if (error?.status === 404) {
+      if (error?.status === 401) {
+        clearStoredToken();
+        setProfileError(null);
+      } else if (error?.status === 404) {
         setProfileError("Your account isn't set up yet. Please contact support.");
       } else {
         setProfileError(error?.message || "We couldn't load your seller profile.");
@@ -42,58 +40,61 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!AUTH_ENABLED) {
-      setAuthReady(true);
-      return undefined;
-    }
-
-    let isActive = true;
-    let authSubscription = null;
-
     const initializeAuth = async () => {
-      const {
-        data: { session: currentSession },
-      } = await supabase.auth.getSession();
+      const searchParams = new URLSearchParams(window.location.search);
+      const queryToken = searchParams.get("token");
+      const existingToken = localStorage.getItem("seller_twin_token");
+      const tokenToUse = queryToken || existingToken;
 
-      if (!isActive) return;
+      if (tokenToUse) {
+        localStorage.setItem("seller_twin_token", tokenToUse);
+        if (queryToken) {
+          window.history.replaceState(null, "", window.location.pathname);
+        }
+      }
 
-      setSession(currentSession);
-      if (currentSession) {
-        await loadSellerProfile(currentSession);
-      } else {
+      if (!tokenToUse) {
+        setSellerProfile(null);
+        setProfileError(null);
+        setProfileLoading(false);
+        setAuthReady(true);
+        return;
+      }
+
+      await loadSellerProfile();
+      setAuthReady(true);
+    };
+
+    const handleAuthEvent = (event) => {
+      if (event?.detail?.authenticated === false) {
+        clearStoredToken();
         setSellerProfile(null);
         setProfileError(null);
         setProfileLoading(false);
       }
-
-      setAuthReady(true);
-
-      const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-        if (!isActive) return;
-        setSession(nextSession);
-        if (nextSession) {
-          loadSellerProfile(nextSession);
-        } else {
-          setSellerProfile(null);
-          setProfileError(null);
-          setProfileLoading(false);
-        }
-      });
-
-      authSubscription = data.subscription;
     };
 
-    initializeAuth();
+    window.addEventListener("seller-twin-auth-change", handleAuthEvent);
+    void initializeAuth();
 
     return () => {
-      isActive = false;
-      authSubscription?.unsubscribe?.();
+      window.removeEventListener("seller-twin-auth-change", handleAuthEvent);
     };
   }, []);
 
-  const handleSignOut = async () => {
-    if (!supabase) return;
-    await supabase.auth.signOut();
+  const handleSignOut = () => {
+    clearStoredToken();
+    setSellerProfile(null);
+    setProfileError(null);
+    setProfileLoading(false);
+    setAuthReady(true);
+  };
+
+  const handleLoginSuccess = async (token) => {
+    localStorage.setItem("seller_twin_token", token);
+    setAuthReady(false);
+    await loadSellerProfile();
+    setAuthReady(true);
   };
 
   if (!authReady) {
@@ -106,52 +107,8 @@ export default function App() {
     );
   }
 
-  if (!AUTH_ENABLED) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <header className="sticky top-0 z-30 border-b border-gray-200 bg-white shadow-sm">
-          <div className="mx-auto flex max-w-4xl items-center gap-2 px-4 py-3">
-            <h1 className="mr-auto text-sm font-semibold text-gray-800">
-              Seller Economic Twin
-            </h1>
-            <button
-              onClick={() => setActiveTab("seller")}
-              className={
-                "rounded-full px-4 py-2 text-sm font-medium transition-colors " +
-                (activeTab === "seller"
-                  ? "bg-gray-900 text-white"
-                  : "text-gray-600 hover:bg-gray-100")
-              }
-            >
-              Dashboard
-            </button>
-            <button
-              onClick={() => setActiveTab("whatsapp")}
-              className={
-                "rounded-full px-4 py-2 text-sm font-medium transition-colors " +
-                (activeTab === "whatsapp"
-                  ? "bg-green-600 text-white"
-                  : "text-gray-600 hover:bg-gray-100")
-              }
-            >
-              WhatsApp Thread
-            </button>
-          </div>
-        </header>
-
-        <main className="mx-auto max-w-4xl px-4 py-6">
-          {activeTab === "seller" ? (
-            <SellerPanel sellerId={FALLBACK_SELLER_ID} />
-          ) : (
-            <WhatsAppPanel sellerId={FALLBACK_SELLER_ID} />
-          )}
-        </main>
-      </div>
-    );
-  }
-
-  if (!session) {
-    return <LoginScreen />;
+  if (!sellerProfile && !profileLoading && authReady) {
+    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
   }
 
   if (profileLoading) {

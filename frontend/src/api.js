@@ -3,39 +3,24 @@
 // Function names and return shapes must match mockApi.js exactly, since
 // apiClient.js swaps between the two with zero changes elsewhere.
 
-import supabase from "./supabaseClient.js";
-
 const BASE_URL = import.meta.env.VITE_API_URL;
 
-async function getAuthHeader() {
-  if (!supabase) {
-    throw new Error("Authentication is not configured for this client.");
-  }
-
-  const {
-    data: { session },
-    error,
-  } = await supabase.auth.getSession();
-
-  if (error) throw error;
-  if (!session?.access_token) {
+function getAuthHeader() {
+  const token = localStorage.getItem("seller_twin_token");
+  if (!token) {
     throw new Error("You must be signed in to access this resource.");
   }
 
-  return { Authorization: `Bearer ${session.access_token}` };
+  return { Authorization: `Bearer ${token}` };
 }
 
-async function maybeSignOut() {
-  if (!supabase) return;
-  try {
-    await supabase.auth.signOut();
-  } catch {
-    // Ignore sign-out failures and let the caller surface the original error.
-  }
+function maybeSignOut() {
+  localStorage.removeItem("seller_twin_token");
+  window.dispatchEvent(new CustomEvent("seller-twin-auth-change", { detail: { authenticated: false } }));
 }
 
 async function request(path, options = {}) {
-  const authHeader = await getAuthHeader();
+  const authHeader = getAuthHeader();
   const headers = {
     "Content-Type": "application/json",
     ...authHeader,
@@ -49,7 +34,7 @@ async function request(path, options = {}) {
 
   if (!res.ok) {
     if (res.status === 401) {
-      await maybeSignOut();
+      maybeSignOut();
       const error = new Error("Your session has expired. Please sign in again.");
       error.status = 401;
       throw error;

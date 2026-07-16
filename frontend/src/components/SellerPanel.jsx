@@ -109,11 +109,17 @@ export default function SellerPanel({ sellerId }) {
         </button>
       </div>
 
-      <SKUSummaryCards
-        skus={seller.skus}
-        selectedSkuId={selectedSkuId}
-        onSelectSku={setSelectedSkuId}
-      />
+      {seller.skus.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-gray-300 bg-white px-4 py-8 text-center text-sm text-gray-600 shadow-sm">
+          No products yet — set up your first product to start getting pricing and stock advice.
+        </div>
+      ) : (
+        <SKUSummaryCards
+          skus={seller.skus}
+          selectedSkuId={selectedSkuId}
+          onSelectSku={setSelectedSkuId}
+        />
+      )}
 
       {selectedSku && (
         <>

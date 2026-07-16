@@ -1,25 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockGetSession, mockSignOut } = vi.hoisted(() => ({
-  mockGetSession: vi.fn(),
-  mockSignOut: vi.fn(),
-}));
-
-vi.mock("./supabaseClient.js", () => ({
-  default: {
-    auth: {
-      getSession: mockGetSession,
-      signOut: mockSignOut,
-    },
-  },
-}));
-
 import { getSeller } from "./api.js";
 
 describe("api auth headers", () => {
   beforeEach(() => {
-    mockGetSession.mockReset();
-    mockSignOut.mockReset();
+    localStorage.clear();
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -31,10 +16,8 @@ describe("api auth headers", () => {
     });
   });
 
-  it("attaches the current JWT to API requests", async () => {
-    mockGetSession.mockResolvedValue({
-      data: { session: { access_token: "demo-token" } },
-    });
+  it("attaches the current JWT from localStorage to API requests", async () => {
+    localStorage.setItem("seller_twin_token", "demo-token");
 
     await getSeller("riya_sharma");
 
