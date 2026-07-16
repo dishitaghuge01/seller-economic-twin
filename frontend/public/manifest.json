@@ -1,15 +1,10 @@
 {
   "name": "Seller Economic Twin",
-  "short_name": "SET",
+  "short_name": "Seller Twin",
+  "description": "AI agent for pricing and inventory — works on WhatsApp",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#0f172a",
-  "icons": [
-    {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    }
-  ]
+  "background_color": "#ffffff",
+  "theme_color": "#16a34a",
+  "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
 }
