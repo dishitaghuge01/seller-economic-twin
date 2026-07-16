@@ -16,7 +16,7 @@ serverless/autoscaling environment.
 import os
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timedelta, timezone
 from typing import Optional, List, Dict, Any
 
 import psycopg2
@@ -157,6 +157,17 @@ CREATE_TABLES_SQL = """
         notify_on_stockout_risk BOOLEAN NOT NULL DEFAULT TRUE,
         price_change_threshold  REAL NOT NULL DEFAULT 0.05,
         updated_at               TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    -- This table is intentionally outside the RLS model: pairing is handled
+    -- entirely in the application layer before a seller has any auth identity.
+    CREATE TABLE IF NOT EXISTS pairing_sessions (
+        phone_number    TEXT PRIMARY KEY,
+        status          TEXT NOT NULL DEFAULT 'pending',
+        jwt_token       TEXT,
+        seller_id       TEXT,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        expires_at      TIMESTAMPTZ NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_orders_sku_date
@@ -360,6 +371,76 @@ def get_seller_by_auth_user_id(auth_user_id: str) -> Optional[Seller]:
             cur.execute("SELECT * FROM sellers WHERE auth_user_id = %s", (auth_user_id,))
             row = cur.fetchone()
     return _row_to_seller(row) if row else None
+
+
+def upsert_pairing_session(phone_number: str, ttl_minutes: int = 15) -> bool:
+    with get_connection() as conn:
+        with get_cursor(conn) as cur:
+            cur.execute(
+                "SELECT status, created_at FROM pairing_sessions WHERE phone_number = %s",
+                (phone_number,),
+            )
+            existing = cur.fetchone()
+            if existing and existing["status"] == "pending":
+                created_at = _normalize_datetime(existing["created_at"])
+                if created_at is not None and datetime.now(timezone.utc) - created_at < timedelta(seconds=30):
+                    return False
+
+            cur.execute(
+                """
+                INSERT INTO pairing_sessions
+                (phone_number, status, jwt_token, seller_id, created_at, expires_at)
+                VALUES (%s, 'pending', NULL, NULL, now(), now() + (%s * interval '1 minute'))
+                ON CONFLICT (phone_number) DO UPDATE
+                SET status='pending', jwt_token=NULL, seller_id=NULL,
+                    created_at=now(), expires_at=now() + (%s * interval '1 minute')
+                """,
+                (phone_number, ttl_minutes, ttl_minutes),
+            )
+            return True
+
+
+def get_pairing_session(phone_number: str) -> Optional[dict]:
+    with get_connection() as conn:
+        with get_cursor(conn) as cur:
+            cur.execute(
+                "SELECT * FROM pairing_sessions WHERE phone_number = %s AND expires_at > now()",
+                (phone_number,),
+            )
+            row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def complete_pairing_session(phone_number: str, jwt_token: str, seller_id: str) -> None:
+    with get_connection() as conn:
+        with get_cursor(conn) as cur:
+            cur.execute(
+                "UPDATE pairing_sessions SET status='complete', jwt_token=%s, seller_id=%s WHERE phone_number = %s",
+                (jwt_token, seller_id, phone_number),
+            )
+
+
+def create_seller_from_phone(phone_number: str) -> Seller:
+    import uuid
+
+    auth_user_id = str(uuid.uuid4())
+    seller_id_base = "seller_" + phone_number[-6:]
+    seller_id = seller_id_base
+    suffix = 0
+    while get_seller_by_id(seller_id) is not None:
+        suffix += 1
+        seller_id = f"{seller_id_base}_{suffix}"
+
+    seller = Seller(
+        seller_id=seller_id,
+        seller_name="New Seller",
+        phone_number=phone_number,
+        language_preference="hi",
+        auth_user_id=auth_user_id,
+    )
+    insert_seller(seller)
+    get_seller_settings(seller_id)
+    return seller
 
 
 def get_all_active_sellers() -> List[Seller]:

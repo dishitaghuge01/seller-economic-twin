@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 import database
 from agent_core import AgentCoreError, run_agent_cycle
+from auth_pairing import router as auth_pairing_router
 from forecasting_tool import run_forecasting_tool
 from models import Seller, SellerSettings
 from scheduler import run_scheduler_tick, scheduler as scheduler_job
@@ -34,6 +35,7 @@ app.add_middleware(
 logger = logging.getLogger(__name__)
 
 app.include_router(whatsapp_router, prefix="/whatsapp")
+app.include_router(auth_pairing_router)
 
 _forecast_cache: Dict[str, tuple[float, dict]] = {}
 _FORECAST_TTL_SECONDS = 6 * 60 * 60
@@ -66,7 +68,13 @@ async def get_current_seller(authorization: Optional[str] = Header(None, alias="
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     try:
-        payload = jwt.decode(token, jwt_secret, algorithms=["HS256"], audience="authenticated")
+        payload = jwt.decode(
+            token,
+            jwt_secret,
+            algorithms=["HS256"],
+            audience="authenticated",
+            options={"require": ["exp"]},
+        )
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid authentication token") from None
 

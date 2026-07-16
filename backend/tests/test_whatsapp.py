@@ -106,7 +106,10 @@ def test_webhook_valid_signature_unregistered_number(client, monkeypatch):
         headers={"X-Twilio-Signature": "valid"},
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 200
+    seller = database.get_seller_by_phone("+919999999999")
+    assert seller is not None
+    assert seller.auth_user_id is not None
 
 
 def test_webhook_idempotency(client, monkeypatch):

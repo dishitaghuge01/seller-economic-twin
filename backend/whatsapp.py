@@ -12,6 +12,7 @@ from twilio.twiml.messaging_response import MessagingResponse
 
 import database
 from agent_core import AgentCoreError, run_agent_cycle
+from auth_utils import mint_seller_jwt
 from models import Conversation
 from sku_resolution import resolve_default_sku
 
@@ -82,9 +83,10 @@ async def whatsapp_webhook(request: Request) -> Response:
 
     seller = database.get_seller_by_phone(from_number)
     if seller is None:
-        raise HTTPException(status_code=404, detail="Unknown sender")
+        seller = database.create_seller_from_phone(from_number)
 
-    resolved_sku_id = resolve_default_sku(seller.seller_id)
+    token = mint_seller_jwt(seller.auth_user_id)
+    database.complete_pairing_session(from_number, token, seller.seller_id)
 
     inbound_msg = Conversation(
         message_id=str(uuid.uuid4()),
@@ -95,17 +97,25 @@ async def whatsapp_webhook(request: Request) -> Response:
     )
     database.insert_conversation_message(inbound_msg)
 
-    try:
-        agent_result = run_agent_cycle(
-            seller.seller_id,
-            resolved_sku_id,
-            trigger="user_message",
-            message_text=form_data.get("Body", ""),
+    if not database.get_skus_for_seller(seller.seller_id):
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        response_text = (
+            "Namaste! Aapka account ban gaya hai. Apna pehla product add karne ke liye "
+            f"dashboard kholein: {frontend_url}?token={token}"
         )
-        response_text = agent_result["seller_message"]
-    except AgentCoreError as exc:
-        logger.warning("Agent cycle failed for seller %s: %s", seller.seller_id, exc)
-        response_text = _fallback_message(seller.language_preference)
+    else:
+        resolved_sku_id = resolve_default_sku(seller.seller_id)
+        try:
+            agent_result = run_agent_cycle(
+                seller.seller_id,
+                resolved_sku_id,
+                trigger="user_message",
+                message_text=form_data.get("Body", ""),
+            )
+            response_text = agent_result["seller_message"]
+        except AgentCoreError as exc:
+            logger.warning("Agent cycle failed for seller %s: %s", seller.seller_id, exc)
+            response_text = _fallback_message(seller.language_preference)
 
     outbound_msg = Conversation(
         message_id=str(uuid.uuid4()),
