@@ -6,7 +6,7 @@ const severityConfig = {
 
 export default function SKUSummaryCards({ skus, selectedSkuId, onSelectSku }) {
   return (
-    <div className="flex gap-3 overflow-x-auto md:flex-wrap md:overflow-visible pb-2">
+    <div className="flex gap-3 overflow-x-auto flex-nowrap md:flex-wrap md:overflow-visible pb-2">
       {skus.map((sku) => {
         const sev = severityConfig[sku.last_action?.stockout_severity] || severityConfig.safe;
         const isSelected = sku.sku_id === selectedSkuId;
@@ -15,7 +15,7 @@ export default function SKUSummaryCards({ skus, selectedSkuId, onSelectSku }) {
             key={sku.sku_id}
             onClick={() => onSelectSku(sku.sku_id)}
             className={
-              "text-left min-w-[240px] flex-1 bg-white rounded-xl p-4 shadow-sm border-2 transition-all " +
+              "text-left min-w-[240px] flex-none bg-white rounded-xl p-4 shadow-sm border-2 transition-all " +
               (isSelected
                 ? "border-gray-900"
                 : "border-transparent hover:border-gray-200")

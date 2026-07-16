@@ -39,9 +39,9 @@ export default function ShockEventChart({ orderHistory }) {
       <h3 className="font-semibold text-gray-900 mb-1">Sales Trend (30 days)</h3>
       <p className="text-xs text-gray-500 mb-4">Daily units sold</p>
 
-      <div className="h-56">
+      <div className="h-56 w-full min-w-0">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 40, right: 10, left: 0, bottom: 0 }}>
+          <LineChart data={data} margin={{ top: 24, right: 10, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
             <XAxis
               dataKey="day"

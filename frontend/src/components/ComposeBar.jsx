@@ -19,7 +19,10 @@ export default function ComposeBar({ onSend, isLoading }) {
   };
 
   return (
-    <div className="sticky bottom-0 bg-gray-100 border-t border-gray-200 p-2 flex items-center gap-2">
+    <div
+      className="flex-none bg-gray-100 border-t border-gray-200 p-2 flex items-center gap-2"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+    >
       <input
         type="text"
         value={text}

@@ -35,7 +35,7 @@ export default function PriceExplorationChart({ skuId, priceArms }) {
         Times each price was tried by the agent
       </p>
 
-      <div className="h-64">
+      <div className="h-64 w-full min-w-0">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={enriched} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
             <XAxis dataKey="priceLabel" tick={{ fontSize: 12 }} />

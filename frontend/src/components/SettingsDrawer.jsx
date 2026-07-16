@@ -49,13 +49,13 @@ export default function SettingsDrawer({ sellerId, skuIds, isOpen, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex md:justify-end">
+    <div className="fixed inset-0 z-50 flex items-end md:justify-end">
       <div
         className="absolute inset-0 bg-black/40"
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className="relative bg-white w-full md:w-[420px] md:h-full h-[90vh] mt-auto md:mt-0 rounded-t-2xl md:rounded-none shadow-xl overflow-y-auto">
+      <div className="relative bg-white w-full md:w-[420px] md:h-full max-h-[90vh] h-[90vh] mt-auto md:mt-0 rounded-t-2xl md:rounded-none shadow-xl overflow-y-auto">
         <div className="sticky top-0 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between">
           <h2 className="font-semibold text-gray-900">Settings</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-900">
