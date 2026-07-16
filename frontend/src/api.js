@@ -32,6 +32,10 @@ async function request(path, options = {}) {
     headers,
   });
 
+  const contentType = res.headers.get("content-type") || "";
+  const bodyText = await res.text();
+  const parsedBody = contentType.includes("application/json") && bodyText ? JSON.parse(bodyText) : null;
+
   if (!res.ok) {
     if (res.status === 401) {
       maybeSignOut();
@@ -40,12 +44,17 @@ async function request(path, options = {}) {
       throw error;
     }
 
-    const error = new Error(`API request failed: ${res.status} ${res.statusText}`);
+    const detail = parsedBody?.detail || parsedBody?.message || bodyText || `${res.status} ${res.statusText}`;
+    const error = new Error(detail);
     error.status = res.status;
     throw error;
   }
 
-  const contentType = res.headers.get("content-type") || "";
+  if (parsedBody !== null) {
+    return parsedBody;
+  }
+
+  return bodyText ? JSON.parse(bodyText) : null;
   if (contentType.includes("application/json")) {
     return res.json();
   }
@@ -81,6 +90,13 @@ export const updateSettings = async (sellerId, settings) => {
   return request(`/seller/${sellerId}/settings`, {
     method: "POST",
     body: JSON.stringify(settings),
+  });
+};
+
+export const createSku = async (sellerId, skuPayload) => {
+  return request(`/seller/${sellerId}/skus`, {
+    method: "POST",
+    body: JSON.stringify(skuPayload),
   });
 };
 

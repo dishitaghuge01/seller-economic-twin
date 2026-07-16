@@ -131,6 +131,34 @@ export const updateSettings = async (sellerId, settings) => {
   return { status: "updated", arms_recomputed: true, new_arm_count: 5 };
 };
 
+export const createSku = async (sellerId, skuPayload) => {
+  await delay(400);
+  const slug = skuPayload.sku_name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 30);
+  let skuId = slug || "sku";
+  let suffix = 0;
+  while (MOCK_SKUS.some((sku) => sku.sku_id === skuId)) {
+    suffix += 1;
+    skuId = `${slug}_${suffix}`;
+  }
+
+  const newSku = {
+    sku_id: skuId,
+    sku_name: skuPayload.sku_name,
+    current_stock: skuPayload.current_stock,
+    reorder_point: skuPayload.reorder_point,
+    price_floor: skuPayload.price_floor,
+    price_ceiling: skuPayload.price_ceiling,
+    current_chosen_price: null,
+    last_action: null,
+  };
+  MOCK_SKUS.push(newSku);
+  return newSku;
+};
+
 export const getConversations = async (sellerId) => {
   await delay(300);
   return { messages: MOCK_CONVERSATIONS };

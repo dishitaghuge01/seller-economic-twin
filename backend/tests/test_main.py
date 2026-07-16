@@ -47,7 +47,11 @@ def client():
 
 
 def _make_token(auth_user_id: str) -> str:
-    payload = {"sub": auth_user_id, "aud": "authenticated"}
+    payload = {
+        "sub": auth_user_id,
+        "aud": "authenticated",
+        "exp": datetime.now(tz=timezone.utc).timestamp() + 3600,
+    }
     return jwt.encode(payload, os.environ["SUPABASE_JWT_SECRET"], algorithm="HS256")
 
 
@@ -331,6 +335,128 @@ def test_post_settings_success(client):
     assert body["status"] == "updated"
     assert body["arms_recomputed"] is True
     assert body["new_arm_count"] >= 1
+
+
+def test_create_sku_success(client):
+    seller = Seller(
+        seller_id="s1",
+        seller_name="Riya Sharma",
+        phone_number="+9111111111",
+        language_preference="hi",
+        auth_user_id=str(uuid.uuid4()),
+    )
+    database.insert_seller(seller)
+
+    payload = {
+        "sku_name": "Sunrise Saree",
+        "current_stock": 12,
+        "reorder_point": 4,
+        "unit_cost": 210,
+        "price_floor": 300,
+        "price_ceiling": 420,
+    }
+    response = client.post(
+        f"/seller/{seller.seller_id}/skus",
+        json=payload,
+        headers=_auth_header(seller.auth_user_id),
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["sku_name"] == payload["sku_name"]
+    assert body["price_floor"] == payload["price_floor"]
+    assert body["price_ceiling"] == payload["price_ceiling"]
+    assert body["current_stock"] == payload["current_stock"]
+    assert body["current_chosen_price"] is None
+
+    sku = database.get_sku_by_id(body["sku_id"])
+    assert sku is not None
+    assert sku.seller_id == seller.seller_id
+
+    arms = database.get_price_arms(body["sku_id"], active_only=False)
+    assert len(arms) >= 1
+
+
+def test_create_sku_validation_price_range(client):
+    seller = Seller(
+        seller_id="s2",
+        seller_name="Riya Sharma",
+        phone_number="+9111111112",
+        language_preference="hi",
+        auth_user_id=str(uuid.uuid4()),
+    )
+    database.insert_seller(seller)
+
+    response = client.post(
+        f"/seller/{seller.seller_id}/skus",
+        json={
+            "sku_name": "Evening Lehenga",
+            "current_stock": 6,
+            "reorder_point": 2,
+            "unit_cost": 250,
+            "price_floor": 500,
+            "price_ceiling": 450,
+        },
+        headers=_auth_header(seller.auth_user_id),
+    )
+    assert response.status_code == 400
+    assert "price_floor" in response.json()["detail"] or "price ceiling" in response.json()["detail"]
+
+
+def test_create_sku_requires_auth(client):
+    seller = Seller(
+        seller_id="s3",
+        seller_name="Riya Sharma",
+        phone_number="+9111111113",
+        language_preference="hi",
+        auth_user_id=str(uuid.uuid4()),
+    )
+    database.insert_seller(seller)
+
+    response = client.post(
+        f"/seller/{seller.seller_id}/skus",
+        json={
+            "sku_name": "Festival Blouse",
+            "current_stock": 5,
+            "reorder_point": 1,
+            "unit_cost": 190,
+            "price_floor": 280,
+            "price_ceiling": 360,
+        },
+    )
+    assert response.status_code == 401
+
+
+def test_create_sku_cross_seller_forbidden(client):
+    seller_a = Seller(
+        seller_id="s4",
+        seller_name="Riya Sharma",
+        phone_number="+9111111114",
+        language_preference="hi",
+        auth_user_id=str(uuid.uuid4()),
+    )
+    seller_b = Seller(
+        seller_id="s5",
+        seller_name="Riya Sharma",
+        phone_number="+9111111115",
+        language_preference="hi",
+        auth_user_id=str(uuid.uuid4()),
+    )
+    database.insert_seller(seller_a)
+    database.insert_seller(seller_b)
+
+    response = client.post(
+        f"/seller/{seller_b.seller_id}/skus",
+        json={
+            "sku_name": "Festival Blouse",
+            "current_stock": 5,
+            "reorder_point": 1,
+            "unit_cost": 190,
+            "price_floor": 280,
+            "price_ceiling": 360,
+        },
+        headers=_auth_header(seller_a.auth_user_id),
+    )
+    assert response.status_code == 403
 
 
 def test_get_conversations_shape(client):

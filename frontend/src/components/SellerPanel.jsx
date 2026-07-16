@@ -15,6 +15,15 @@ export default function SellerPanel({ sellerId }) {
   const [history, setHistory] = useState(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [isSettingsOpen, setSettingsOpen] = useState(false);
+  const [isAddProductOpen, setAddProductOpen] = useState(false);
+  const [creatingSku, setCreatingSku] = useState(false);
+  const [addSkuError, setAddSkuError] = useState(null);
+  const [newSkuName, setNewSkuName] = useState("");
+  const [newCurrentStock, setNewCurrentStock] = useState(0);
+  const [newReorderPoint, setNewReorderPoint] = useState(0);
+  const [newUnitCost, setNewUnitCost] = useState(80);
+  const [newPriceFloor, setNewPriceFloor] = useState(100);
+  const [newPriceCeiling, setNewPriceCeiling] = useState(140);
 
   const loadSeller = useCallback(() => {
     setLoading(true);
@@ -41,6 +50,42 @@ export default function SellerPanel({ sellerId }) {
       .then(setHistory)
       .finally(() => setHistoryLoading(false));
   }, [sellerId, selectedSkuId]);
+
+  const canCreateSku =
+    newSkuName.trim().length > 0 &&
+    Number(newPriceFloor) < Number(newPriceCeiling) &&
+    Number(newUnitCost) >= 0 &&
+    Number(newCurrentStock) >= 0 &&
+    Number(newReorderPoint) >= 0;
+
+  const handleCreateSku = async () => {
+    if (!canCreateSku) return;
+    setCreatingSku(true);
+    setAddSkuError(null);
+
+    try {
+      const newSku = await apiClient.createSku(sellerId, {
+        sku_name: newSkuName,
+        current_stock: Number(newCurrentStock),
+        reorder_point: Number(newReorderPoint),
+        unit_cost: Number(newUnitCost),
+        price_floor: Number(newPriceFloor),
+        price_ceiling: Number(newPriceCeiling),
+      });
+      setAddProductOpen(false);
+      setNewSkuName("");
+      setNewCurrentStock(0);
+      setNewReorderPoint(0);
+      setNewPriceFloor(100);
+      setNewPriceCeiling(140);
+      loadSeller();
+      setSelectedSkuId(newSku.sku_id);
+    } catch (e) {
+      setAddSkuError(e.message || "Unable to create product.");
+    } finally {
+      setCreatingSku(false);
+    }
+  };
 
   const handleUserMessage = async (text) => {
     const res = await apiClient.postMessage(sellerId, text);
@@ -95,23 +140,37 @@ export default function SellerPanel({ sellerId }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="text-sm text-gray-500">Welcome back</div>
           <div className="font-semibold text-gray-900">{seller.seller.seller_name}</div>
         </div>
-        <button
-          onClick={() => setSettingsOpen(true)}
-          className="p-2 rounded-full hover:bg-gray-100"
-          aria-label="Settings"
-        >
-          ⚙
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setAddProductOpen(true)}
+            className="rounded-lg bg-gray-900 text-white px-4 py-2 text-sm font-medium hover:bg-gray-800"
+          >
+            Add Product
+          </button>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="p-2 rounded-full hover:bg-gray-100"
+            aria-label="Settings"
+          >
+            ⚙
+          </button>
+        </div>
       </div>
 
       {seller.skus.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-gray-300 bg-white px-4 py-8 text-center text-sm text-gray-600 shadow-sm">
-          No products yet — set up your first product to start getting pricing and stock advice.
+          <p className="mb-4">No products yet — set up your first product to start getting pricing and stock advice.</p>
+          <button
+            onClick={() => setAddProductOpen(true)}
+            className="rounded-lg bg-gray-900 text-white px-4 py-2 text-sm font-medium hover:bg-gray-800"
+          >
+            Add your first product
+          </button>
         </div>
       ) : (
         <SKUSummaryCards
@@ -151,6 +210,117 @@ export default function SellerPanel({ sellerId }) {
         isOpen={isSettingsOpen}
         onClose={() => setSettingsOpen(false)}
       />
+
+      {isAddProductOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center px-4 py-6 sm:items-center">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setAddProductOpen(false)}
+            aria-hidden="true"
+          />
+          <div className="relative w-full max-w-lg rounded-3xl bg-white shadow-2xl ring-1 ring-black/5 overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Add product</h2>
+                <p className="text-sm text-gray-500">Enter details for your new SKU.</p>
+              </div>
+              <button
+                onClick={() => setAddProductOpen(false)}
+                className="text-gray-500 hover:text-gray-900"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="space-y-4 px-6 py-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Product name</label>
+                <input
+                  value={newSkuName}
+                  onChange={(e) => setNewSkuName(e.target.value)}
+                  className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Current stock</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={newCurrentStock}
+                    onChange={(e) => setNewCurrentStock(e.target.value)}
+                    className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Reorder point</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={newReorderPoint}
+                    onChange={(e) => setNewReorderPoint(e.target.value)}
+                    className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Unit cost</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={newUnitCost}
+                    onChange={(e) => setNewUnitCost(e.target.value)}
+                    className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Price floor</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={newPriceFloor}
+                    onChange={(e) => setNewPriceFloor(e.target.value)}
+                    className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Price ceiling</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={newPriceCeiling}
+                    onChange={(e) => setNewPriceCeiling(e.target.value)}
+                    className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+              {Number(newPriceFloor) >= Number(newPriceCeiling) && (
+                <p className="text-sm text-red-600">Price ceiling must be higher than price floor.</p>
+              )}
+              {addSkuError && (
+                <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+                  {addSkuError}
+                </div>
+              )}
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  onClick={() => setAddProductOpen(false)}
+                  className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateSku}
+                  disabled={!canCreateSku || creatingSku}
+                  className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {creatingSku ? "Creating…" : "Create product"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

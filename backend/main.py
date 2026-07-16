@@ -2,6 +2,7 @@ import logging
 import os
 import re
 import time
+import uuid
 from typing import Dict, Optional
 from dotenv import load_dotenv
 load_dotenv()
@@ -16,7 +17,7 @@ import database
 from agent_core import AgentCoreError, run_agent_cycle
 from auth_pairing import router as auth_pairing_router
 from forecasting_tool import run_forecasting_tool
-from models import Seller, SellerSettings
+from models import Seller, SellerSettings, SKU
 from scheduler import run_scheduler_tick, scheduler as scheduler_job
 from sku_resolution import resolve_default_sku
 from whatsapp import router as whatsapp_router
@@ -53,6 +54,29 @@ class SettingsRequest(BaseModel):
     notify_on_price_change: bool
     notify_on_stockout_risk: bool
     price_change_threshold: float
+
+
+class CreateSkuRequest(BaseModel):
+    sku_name: str
+    current_stock: int
+    reorder_point: int
+    unit_cost: int
+    price_floor: int
+    price_ceiling: int
+
+
+def _slugify_sku_name(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
+    return slug[:30] or "sku"
+
+
+def _generate_sku_id(sku_name: str) -> str:
+    base = _slugify_sku_name(sku_name)
+    candidate = base
+    while database.get_sku_by_id(candidate) is not None:
+        suffix = uuid.uuid4().hex[:6]
+        candidate = f"{base}_{suffix}"
+    return candidate
 
 
 async def get_current_seller(authorization: Optional[str] = Header(None, alias="Authorization")) -> Seller:
@@ -161,6 +185,51 @@ def get_seller(seller_id: str, seller: Seller = Depends(get_current_seller_for_p
             "language_preference": seller.language_preference,
         },
         "skus": sku_payload,
+    }
+
+
+@app.post("/seller/{seller_id}/skus", status_code=201)
+def create_sku(
+    seller_id: str,
+    payload: CreateSkuRequest,
+    seller: Seller = Depends(get_current_seller_for_path),
+) -> dict:
+    sku_name = (payload.sku_name or "").strip()
+    if not sku_name:
+        raise HTTPException(status_code=400, detail="Product name is required")
+    if payload.current_stock < 0:
+        raise HTTPException(status_code=400, detail="Current stock must be 0 or greater")
+    if payload.reorder_point < 0:
+        raise HTTPException(status_code=400, detail="Reorder point must be 0 or greater")
+
+    sku_id = _generate_sku_id(sku_name)
+    try:
+        sku = SKU(
+            sku_id=sku_id,
+            seller_id=seller_id,
+            sku_name=sku_name,
+            current_stock=payload.current_stock,
+            reorder_point=payload.reorder_point,
+            unit_cost=payload.unit_cost,
+            price_floor=payload.price_floor,
+            price_ceiling=payload.price_ceiling,
+            current_chosen_price=None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    database.insert_sku(sku)
+    database.recompute_price_arms(sku.sku_id, sku.price_floor, sku.price_ceiling)
+
+    return {
+        "sku_id": sku.sku_id,
+        "sku_name": sku.sku_name,
+        "current_stock": sku.current_stock,
+        "reorder_point": sku.reorder_point,
+        "unit_cost": sku.unit_cost,
+        "price_floor": sku.price_floor,
+        "price_ceiling": sku.price_ceiling,
+        "current_chosen_price": sku.current_chosen_price,
     }
 
 
