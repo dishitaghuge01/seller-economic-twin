@@ -39,6 +39,7 @@ RLS_TEST_DB_URL = os.environ.get("RLS_TEST_DB_URL")
 def fresh_db():
     """Recreate tables/RLS and truncate all data before every test."""
     database.create_tables()
+    database.create_local_auth_stub()
     database.enable_rls()
     with database.get_connection() as conn:
         with conn.cursor() as cur:

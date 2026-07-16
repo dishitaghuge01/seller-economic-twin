@@ -30,6 +30,14 @@ DATABASE_URL = os.environ["SUPABASE_DB_URL"]
 _pool = SimpleConnectionPool(minconn=1, maxconn=10, dsn=DATABASE_URL)
 
 
+def _normalize_datetime(value: Any) -> Any:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+    return value
+
+
 @contextmanager
 def get_connection():
     """
@@ -167,18 +175,40 @@ CREATE_TABLES_SQL = """
 
 def create_tables() -> None:
     """
-    Create all tables if they do not already exist.
+    Create the application's own tables if they do not already exist.
     Safe to call on every application startup -- idempotent.
+
+    This function must never attempt to create or modify Supabase's native
+    auth.users table; production deployments should rely on Supabase's
+    built-in auth schema. Local-only test fixtures should call
+    create_local_auth_stub() explicitly when they need the auth.users stub.
     """
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("CREATE SCHEMA IF NOT EXISTS auth")
+            cur.execute(CREATE_TABLES_SQL)
+
+
+def create_local_auth_stub() -> None:
+    """
+    Creates a minimal stand-in for Supabase's auth.users table, needed only
+    when running against a plain local/test Postgres instance that does not
+    have Supabase's built-in auth schema (e.g. local dev, CI, or a bare
+    supabase start alternative).
+
+    NEVER call this against a real Supabase-hosted database -- auth.users
+    already exists there, is owned by Supabase's internal auth service, and
+    the application's database role does not have permission to modify it.
+    Calling this against real Supabase will raise
+    psycopg2.errors.InsufficientPrivilege, which is the correct behavior.
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
             cur.execute("""
+                CREATE SCHEMA IF NOT EXISTS auth;
                 CREATE TABLE IF NOT EXISTS auth.users (
                     id UUID PRIMARY KEY
-                )
+                );
             """)
-            cur.execute(CREATE_TABLES_SQL)
 
 
 # ---------------------------------------------------------------------------
@@ -348,7 +378,7 @@ def _row_to_seller(row: Dict[str, Any]) -> Seller:
         phone_number=row["phone_number"],
         language_preference=row["language_preference"],
         auth_user_id=row["auth_user_id"],
-        created_at=row["created_at"]
+        created_at=_normalize_datetime(row["created_at"])
     )
 
 
@@ -432,7 +462,7 @@ def _row_to_sku(row: Dict[str, Any]) -> SKU:
         price_ceiling=row["price_ceiling"],
         current_chosen_price=row["current_chosen_price"],
         is_active=bool(row["is_active"]),
-        created_at=row["created_at"]
+        created_at=_normalize_datetime(row["created_at"])
     )
 
 
@@ -587,7 +617,7 @@ def _row_to_arm(row: Dict[str, Any]) -> PriceArm:
         price_value=row["price_value"], alpha=row["alpha"],
         beta_param=row["beta_param"], times_chosen=row["times_chosen"],
         is_active=bool(row["is_active"]),
-        last_updated=row["last_updated"]
+        last_updated=_normalize_datetime(row["last_updated"])
     )
 
 
@@ -657,7 +687,7 @@ def _row_to_action(row: Dict[str, Any]) -> AgentAction:
         seller_message=row["seller_message"],
         reasoning_trace=row["reasoning_trace"],
         delivered_via=row["delivered_via"],
-        created_at=row["created_at"]
+        created_at=_normalize_datetime(row["created_at"])
     )
 
 
@@ -712,7 +742,7 @@ def _row_to_conversation(row: Dict[str, Any]) -> Conversation:
         message_id=row["message_id"], seller_id=row["seller_id"],
         direction=row["direction"], message_body=row["message_body"],
         message_sid=row["message_sid"],
-        created_at=row["created_at"]
+        created_at=_normalize_datetime(row["created_at"])
     )
 
 

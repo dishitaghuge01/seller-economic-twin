@@ -3,8 +3,11 @@ import os
 import re
 import time
 from typing import Dict, Optional
+from dotenv import load_dotenv
+load_dotenv()
 
 import jwt
+from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -13,6 +16,9 @@ import database
 from agent_core import AgentCoreError, run_agent_cycle
 from forecasting_tool import run_forecasting_tool
 from models import Seller, SellerSettings
+from scheduler import run_scheduler_tick, scheduler as scheduler_job
+from sku_resolution import resolve_default_sku
+from whatsapp import router as whatsapp_router
 
 app = FastAPI(title="Seller Economic Twin")
 
@@ -26,6 +32,8 @@ app.add_middleware(
 )
 
 logger = logging.getLogger(__name__)
+
+app.include_router(whatsapp_router, prefix="/whatsapp")
 
 _forecast_cache: Dict[str, tuple[float, dict]] = {}
 _FORECAST_TTL_SECONDS = 6 * 60 * 60
@@ -80,7 +88,20 @@ async def get_current_seller_for_path(seller_id: str, seller: Seller = Depends(g
 
 @app.on_event("startup")
 def startup_event() -> None:
+    # This creates only the application's own tables. auth.users is managed
+    # by Supabase natively in production and must never be created or
+    # modified here — see create_local_auth_stub() in database.py for the
+    # local-only test equivalent.
     database.create_tables()
+    if not scheduler_job.running:
+        scheduler_job.add_job(run_scheduler_tick, "interval", minutes=15, id="seller_scheduler", replace_existing=True)
+        scheduler_job.start()
+
+
+@app.on_event("shutdown")
+def shutdown_event() -> None:
+    if scheduler_job.running:
+        scheduler_job.shutdown(wait=False)
 
 
 @app.get("/ping")
@@ -209,26 +230,7 @@ def get_forecast(seller_id: str, sku_id: str, refresh: bool = False, seller: Sel
 
 
 def _resolve_default_sku(seller_id: str) -> str:
-    skus = database.get_skus_for_seller(seller_id)
-    if not skus:
-        raise HTTPException(status_code=404, detail="No SKU found for seller")
-    if len(skus) == 1:
-        return skus[0].sku_id
-
-    latest_sku_id = None
-    latest_timestamp = None
-    for sku in skus:
-        actions = database.get_agent_action_history(sku.sku_id, limit=1)
-        if not actions:
-            continue
-        action = actions[0]
-        candidate_time = action.created_at
-        if latest_timestamp is None or candidate_time > latest_timestamp:
-            latest_timestamp = candidate_time
-            latest_sku_id = sku.sku_id
-    if latest_sku_id is not None:
-        return latest_sku_id
-    return skus[0].sku_id
+    return resolve_default_sku(seller_id)
 
 
 @app.post("/seller/{seller_id}/message")
@@ -267,6 +269,9 @@ def post_settings(seller_id: str, payload: SettingsRequest, seller: Seller = Dep
     )
     database.upsert_seller_settings(settings)
 
+    # The frontend currently posts settings without a SKU identifier, so the
+    # backend applies them to the seller's default-resolved SKU for now.
+    # This is a known limitation to revisit once the UI supports per-SKU settings.
     sku_id = _resolve_default_sku(seller_id)
     database.update_sku_price_range(sku_id, payload.price_floor, payload.price_ceiling)
     database.recompute_price_arms(sku_id, payload.price_floor, payload.price_ceiling)

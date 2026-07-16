@@ -48,10 +48,11 @@ def fresh_db():
     globals()["forecasting_tool"] = forecasting_tool
     globals()["pricing_tool"] = pricing_tool
 
+    database.create_tables()
+    database.create_local_auth_stub()
+
     with database.get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("CREATE SCHEMA IF NOT EXISTS auth")
-            cur.execute("CREATE TABLE IF NOT EXISTS auth.users (id UUID PRIMARY KEY)")
             cur.execute(
                 """
                 CREATE OR REPLACE FUNCTION auth.uid()
@@ -60,8 +61,6 @@ def fresh_db():
                 AS $$ SELECT '00000000-0000-0000-0000-000000000000'::UUID $$;
                 """
             )
-
-    database.create_tables()
 
     with database.get_connection() as conn:
         with conn.cursor() as cur:

@@ -24,6 +24,7 @@ def fresh_db(monkeypatch):
     monkeypatch.setenv("SUPABASE_JWT_SECRET", "test-secret")
     monkeypatch.setenv("FRONTEND_URL", "http://localhost:3000")
     database.create_tables()
+    database.create_local_auth_stub()
     try:
         database.enable_rls()
     except Exception:

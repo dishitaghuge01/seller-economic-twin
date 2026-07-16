@@ -40,6 +40,9 @@ from pricing_tool import run_pricing_tool
 
 logger = logging.getLogger(__name__)
 
+SARVAM_MODEL = "sarvam-30b"
+GEMINI_MODEL = "gemini-2.0-flash"
+
 
 class AgentCoreError(RuntimeError):
     """Raised when the agent cycle cannot produce a usable seller-facing response."""
@@ -236,14 +239,14 @@ def _call_provider(provider_name: str, system_prompt: str, user_prompt: str) -> 
     if provider_name == "sarvam":
         api_key = os.getenv("SARVAM_API_KEY")
         base_url = os.getenv("SARVAM_BASE_URL", "https://api.sarvam.ai/v1")
-        model = os.getenv("SARVAM_MODEL", "sarvam-m")
+        model = os.getenv("SARVAM_MODEL", SARVAM_MODEL)
     elif provider_name == "gemini":
         api_key = os.getenv("GEMINI_API_KEY")
         base_url = os.getenv(
             "GEMINI_BASE_URL",
             "https://generativelanguage.googleapis.com/v1beta/openai/",
         )
-        model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+        model = os.getenv("GEMINI_MODEL", GEMINI_MODEL)
     else:
         raise AgentCoreError(f"Unsupported provider: {provider_name}")
 
@@ -251,15 +254,23 @@ def _call_provider(provider_name: str, system_prompt: str, user_prompt: str) -> 
         raise AgentCoreError(f"{provider_name} API key is not configured")
 
     client = OpenAI(api_key=api_key, base_url=base_url)
-    response = client.chat.completions.create(
-        model=model,
-        temperature=0.3,
-        max_tokens=1000,
-        messages=[
+    request_payload = {
+        "model": model,
+        "temperature": 0.3,
+        "max_tokens": 1000,
+        "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-    )
+    }
+    if provider_name == "sarvam":
+        request_payload["reasoning_effort"] = None
+
+    if os.getenv("LLM_PROVIDER_DEBUG") == "1":
+        print("LLM request payload", provider_name, request_payload)
+        logger.info("LLM request payload for %s: %s", provider_name, request_payload)
+
+    response = client.chat.completions.create(**request_payload)
     return _extract_text_from_response(response)
 
 
