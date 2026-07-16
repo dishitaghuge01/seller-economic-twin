@@ -536,10 +536,12 @@ def recompute_price_arms(sku_id: str, new_floor: int, new_ceiling: int) -> None:
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             # Deactivate arms outside new range
+            # Build a dynamic-length NOT IN (...) clause with %s placeholders
+            placeholders = ",".join(["%s"] * len(new_arm_values))
             cur.execute(
-                """UPDATE price_arms SET is_active = FALSE, last_updated = %s
-                   WHERE sku_id = %s AND price_value != ALL(%s)""",
-                (now, sku_id, new_arm_values)
+                f"""UPDATE price_arms SET is_active = FALSE, last_updated = %s
+                   WHERE sku_id = %s AND price_value NOT IN ({placeholders})""",
+                ([now, sku_id] + new_arm_values)
             )
             # Reactivate or create arms within new range
             for price_val in sorted(new_arm_values):
@@ -767,17 +769,41 @@ def build_seller_state(seller_id: str, sku_id: str) -> Dict[str, Any]:
     seller = get_seller_by_id(seller_id)
     sku = get_sku_by_id(sku_id)
     order_history = get_order_history(sku_id, days=30)
-    yesterday_order = get_yesterday_order(sku_id)
-    active_price_arms = get_price_arms(sku_id, active_only=True)
-    last_action = get_last_agent_action(sku_id)
+    yesterday = get_yesterday_order(sku_id)
+    price_arms = get_price_arms(sku_id, active_only=True)
     settings = get_seller_settings(seller_id)
 
-    return {
-        "seller": seller,
-        "sku": sku,
-        "order_history": order_history,
-        "yesterday_order": yesterday_order,
-        "active_price_arms": active_price_arms,
-        "last_agent_action": last_action,
-        "seller_settings": settings,
+    seller_state = {
+        "seller_id": sku.seller_id if sku else seller_id,
+        "sku_id": sku_id,
+        "sku_name": sku.sku_name if sku else None,
+        "current_stock": sku.current_stock if sku else None,
+        "reorder_point": sku.reorder_point if sku else None,
+        "unit_cost": sku.unit_cost if sku else None,
+        "price_floor": sku.price_floor if sku else None,
+        "price_ceiling": sku.price_ceiling if sku else None,
+        "order_history": [
+            {
+                "date": o.order_date.isoformat(),
+                "units_sold": o.units_sold,
+                "price_charged": o.price_charged,
+                "margin": o.margin
+            }
+            for o in order_history
+        ],
+        "price_arms": [
+            {
+                "price_value": a.price_value,
+                "alpha": a.alpha,
+                "beta_param": a.beta_param,
+                "times_chosen": a.times_chosen
+            }
+            for a in price_arms
+        ],
+        "yesterday_price": (yesterday.price_charged if yesterday else None),
+        "yesterday_units_sold": (yesterday.units_sold if yesterday else None),
+        "yesterday_margin": (yesterday.margin if yesterday else None),
+        "language_preference": seller.language_preference if seller else None,
     }
+
+    return seller_state
