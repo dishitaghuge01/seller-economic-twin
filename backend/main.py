@@ -24,10 +24,10 @@ from whatsapp import router as whatsapp_router
 
 app = FastAPI(title="Seller Economic Twin")
 
-frontend_origin = os.getenv("FRONTEND_URL", "http://localhost:3000")
+frontend_origins = os.getenv("FRONTEND_URL", "http://localhost:5173,http://127.0.0.1:5173").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[frontend_origin],
+    allow_origins=frontend_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["Authorization", "Content-Type"],
