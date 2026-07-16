@@ -21,6 +21,8 @@ export default function LoginScreen({ onLoginSuccess }) {
   const [isPolling, setIsPolling] = useState(false);
   const [pollFailureCount, setPollFailureCount] = useState(0);
   const [step, setStep] = useState("phone");
+  const [demoLoading, setDemoLoading] = useState(false);
+  const [demoMessage, setDemoMessage] = useState("");
 
   const resetToPhoneStep = useCallback(() => {
     setStep("phone");
@@ -133,6 +135,31 @@ export default function LoginScreen({ onLoginSuccess }) {
     await checkPairingStatus();
   };
 
+  const handleDemoLogin = async () => {
+    setDemoLoading(true);
+    setDemoMessage("");
+    setError("");
+
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/auth/demo-login`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          setDemoMessage("Demo login is not available in this deployment.");
+          return;
+        }
+        throw new Error(data.detail || "We couldn't start the demo login flow.");
+      }
+
+      onLoginSuccess?.(data.token);
+    } catch (demoError) {
+      setDemoMessage(demoError.message || "We couldn't start the demo login flow.");
+    } finally {
+      setDemoLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-8">
       <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -178,6 +205,24 @@ export default function LoginScreen({ onLoginSuccess }) {
             >
               {loading ? "Preparing WhatsApp…" : "Continue"}
             </button>
+
+            <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-center">
+              <p className="text-sm font-semibold text-gray-900">View Demo Dashboard (Riya Sharma)</p>
+              <p className="mt-1 text-xs text-gray-600">
+                See a fully populated example seller account — no WhatsApp needed.
+              </p>
+              <button
+                type="button"
+                onClick={handleDemoLogin}
+                disabled={demoLoading}
+                className="mt-3 w-full rounded-full border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {demoLoading ? "Opening demo…" : "View Demo Dashboard"}
+              </button>
+              {demoMessage ? (
+                <p className="mt-2 text-xs text-gray-600">{demoMessage}</p>
+              ) : null}
+            </div>
           </form>
         ) : step === "waiting" ? (
           <div className="space-y-4">

@@ -337,6 +337,44 @@ def test_post_settings_success(client):
     assert body["new_arm_count"] >= 1
 
 
+def test_demo_login_disabled_returns_404(client, monkeypatch):
+    monkeypatch.delenv("DEMO_LOGIN_ENABLED", raising=False)
+    response = client.get("/auth/demo-login")
+    assert response.status_code == 404
+
+
+def test_demo_login_enabled_returns_valid_token(client, monkeypatch):
+    monkeypatch.setenv("DEMO_LOGIN_ENABLED", "true")
+    monkeypatch.setenv("DEMO_SELLER_ID", "riya_sharma")
+
+    seller = Seller(
+        seller_id="riya_sharma",
+        seller_name="Riya Sharma",
+        phone_number="+919999999999",
+        language_preference="hi",
+        auth_user_id=str(uuid.uuid4()),
+    )
+    database.insert_seller(seller)
+
+    response = client.get("/auth/demo-login")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["seller_name"] == seller.seller_name
+
+    me_response = client.get("/seller/me", headers={"Authorization": f"Bearer {body['token']}"})
+    assert me_response.status_code == 200
+    assert me_response.json()["seller_id"] == seller.seller_id
+
+
+def test_demo_login_missing_seed_returns_500(client, monkeypatch):
+    monkeypatch.setenv("DEMO_LOGIN_ENABLED", "true")
+    monkeypatch.setenv("DEMO_SELLER_ID", "missing-demo-seller")
+
+    response = client.get("/auth/demo-login")
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Demo seller not seeded — run seed_data.py"
+
+
 def test_create_sku_success(client):
     seller = Seller(
         seller_id="s1",

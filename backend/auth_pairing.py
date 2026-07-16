@@ -58,6 +58,24 @@ async def start_pairing(body: StartPairingRequest):
     return {"status": "pending", "wa_link": WA_ME_LINK}
 
 
+def _demo_login_enabled() -> bool:
+    return (os.getenv("DEMO_LOGIN_ENABLED", "").strip().lower() == "true")
+
+
+@router.get("/auth/demo-login")
+async def demo_login():
+    if not _demo_login_enabled():
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    demo_seller_id = os.getenv("DEMO_SELLER_ID", "riya_sharma")
+    seller = database.get_seller_by_id(demo_seller_id)
+    if seller is None:
+        raise HTTPException(status_code=500, detail="Demo seller not seeded — run seed_data.py")
+
+    token = mint_seller_jwt(seller.auth_user_id, expiry_days=1)
+    return {"token": token, "seller_name": seller.seller_name}
+
+
 @router.get("/auth/pairing-status")
 async def pairing_status(phone_number: str):
     phone = _normalize_phone(phone_number)

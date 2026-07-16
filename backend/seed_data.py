@@ -42,12 +42,22 @@ DEMO_PHONE = os.environ.get("DEMO_SELLER_PHONE", "+919999999999")
 def seed():
     database.create_tables()
 
+    with database.get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM agent_actions WHERE seller_id = %s", ("riya_sharma",))
+            cur.execute("DELETE FROM orders WHERE seller_id = %s", ("riya_sharma",))
+            cur.execute("DELETE FROM seller_settings WHERE seller_id = %s", ("riya_sharma",))
+            cur.execute("DELETE FROM price_arms WHERE sku_id IN (SELECT sku_id FROM skus WHERE seller_id = %s)", ("riya_sharma",))
+            cur.execute("DELETE FROM skus WHERE seller_id = %s", ("riya_sharma",))
+            cur.execute("DELETE FROM sellers WHERE seller_id = %s", ("riya_sharma",))
+
     # --- Seller ---
     seller = Seller(
         seller_id="riya_sharma",
         seller_name="Riya Sharma",
         phone_number=DEMO_PHONE,
         language_preference="hi",
+        auth_user_id=str(uuid.uuid5(uuid.NAMESPACE_URL, "seller:riya_sharma")),
         created_at=datetime.now(timezone.utc)
     )
     database.insert_seller(seller)
