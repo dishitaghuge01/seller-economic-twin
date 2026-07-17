@@ -128,6 +128,12 @@ export const postMessage = async (sellerId, messageText) => {
 
 export const updateSettings = async (sellerId, settings) => {
   await delay(300);
+  // sku_id is required for price floor/ceiling updates in the new contract.
+  if (settings.price_floor != null || settings.price_ceiling != null) {
+    if (!settings.sku_id) {
+      throw new Error("sku_id is required when updating price_floor or price_ceiling");
+    }
+  }
   return { status: "updated", arms_recomputed: true, new_arm_count: 5 };
 };
 

@@ -506,7 +506,12 @@ def _parse_agent_response(raw_text: str) -> Dict[str, str]:
 
     seller_message = reasoning_parts[0].strip()
     reasoning_trace = summary_parts[0].strip()
-    action_summary = summary_parts[1].strip()
+    summary_text = summary_parts[1].strip().splitlines()[0].strip()
+    summary_match = re.match(
+        r"(?im)^(ACTION:.*?CONFIDENCE:\s*(?:high|medium|low))",
+        summary_text,
+    )
+    action_summary = summary_match.group(1).strip() if summary_match else summary_text
 
     if not seller_message or not reasoning_trace or not action_summary:
         raise AgentCoreError(f"Malformed agent response missing required sections: {raw_text}")

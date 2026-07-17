@@ -36,6 +36,7 @@ export default function WhatsAppPanel({ sellerId }) {
   }, [messages.length]);
 
   const handleSend = async (text) => {
+    if (sending) return;
     const now = new Date().toISOString();
     const inbound = {
       message_id: `local_${Date.now()}`,

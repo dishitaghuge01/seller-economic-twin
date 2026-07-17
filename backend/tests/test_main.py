@@ -297,10 +297,11 @@ def test_post_message_agent_core_error_returns_503(client, monkeypatch):
 
 
 def test_post_settings_validation_floor_ceiling(client):
-    seller, _ = _seed_seller()
+    seller, sku = _seed_seller()
     response = client.post(
         f"/seller/{seller.seller_id}/settings",
         json={
+            "sku_id": sku.sku_id,
             "price_floor": 400,
             "price_ceiling": 400,
             "daily_alert_time": "08:00",
@@ -320,6 +321,7 @@ def test_post_settings_success(client):
     response = client.post(
         f"/seller/{seller.seller_id}/settings",
         json={
+            "sku_id": sku.sku_id,
             "price_floor": 300,
             "price_ceiling": 420,
             "daily_alert_time": "09:30",
@@ -335,6 +337,49 @@ def test_post_settings_success(client):
     assert body["status"] == "updated"
     assert body["arms_recomputed"] is True
     assert body["new_arm_count"] >= 1
+    updated_sku = database.get_sku_by_id(sku.sku_id)
+    assert updated_sku.price_floor == 300
+    assert updated_sku.price_ceiling == 420
+
+
+def test_post_settings_missing_sku_id_with_price_fields(client):
+    seller, _ = _seed_seller()
+    response = client.post(
+        f"/seller/{seller.seller_id}/settings",
+        json={
+            "price_floor": 300,
+            "price_ceiling": 420,
+            "daily_alert_time": "09:30",
+            "alert_language": "en",
+            "notify_on_price_change": False,
+            "notify_on_stockout_risk": True,
+            "price_change_threshold": 0.2,
+        },
+        headers=_auth_header(seller.auth_user_id),
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "sku_id is required when updating price_floor or price_ceiling"
+
+
+def test_post_settings_wrong_seller_sku_id_forbidden(client):
+    seller_a, _ = _seed_seller(seller_id="s1", sku_id="k1", auth_user_id=str(uuid.uuid4()))
+    seller_b, sku_b = _seed_seller(seller_id="s2", sku_id="k2", auth_user_id=str(uuid.uuid4()))
+    response = client.post(
+        f"/seller/{seller_a.seller_id}/settings",
+        json={
+            "sku_id": sku_b.sku_id,
+            "price_floor": 300,
+            "price_ceiling": 420,
+            "daily_alert_time": "09:30",
+            "alert_language": "en",
+            "notify_on_price_change": False,
+            "notify_on_stockout_risk": True,
+            "price_change_threshold": 0.2,
+        },
+        headers=_auth_header(seller_a.auth_user_id),
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "sku_id does not belong to this seller"
 
 
 def test_demo_login_disabled_returns_404(client, monkeypatch):

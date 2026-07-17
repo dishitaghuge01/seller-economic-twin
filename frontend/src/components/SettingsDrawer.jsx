@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import apiClient from "../apiClient.js";
 
-export default function SettingsDrawer({ sellerId, skuIds, isOpen, onClose }) {
+export default function SettingsDrawer({ sellerId, skuId, skuName, isOpen, onClose }) {
   const [floor, setFloor] = useState(370);
   const [ceiling, setCeiling] = useState(490);
   const [alertTime, setAlertTime] = useState("09:00");
@@ -27,11 +27,11 @@ export default function SettingsDrawer({ sellerId, skuIds, isOpen, onClose }) {
     setSaving(true);
     try {
       const res = await apiClient.updateSettings(sellerId, {
-        sku_ids: skuIds,
+        sku_id: skuId,
         price_floor: Number(floor),
         price_ceiling: Number(ceiling),
         daily_alert_time: alertTime,
-        language,
+        alert_language: language,
         notify_on_price_change: notifyPrice,
         notify_on_stockout_risk: notifyStockout,
         price_change_threshold: threshold,
@@ -64,102 +64,115 @@ export default function SettingsDrawer({ sellerId, skuIds, isOpen, onClose }) {
         </div>
 
         <div className="p-4 space-y-5">
-          <div>
-            <label className="text-sm font-medium text-gray-700">Price Floor</label>
-            <input
-              type="number"
-              min={100}
-              max={980}
-              step={20}
-              value={floor}
-              onChange={(e) => setFloor(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-gray-700">Price Ceiling</label>
-            <input
-              type="number"
-              min={120}
-              max={1000}
-              step={20}
-              value={ceiling}
-              onChange={(e) => setCeiling(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-            />
-            {invalid && (
-              <p className="mt-1 text-xs text-red-600">
-                Ceiling must be greater than floor.
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label className="text-sm font-medium text-gray-700">Daily Alert Time</label>
-            <input
-              type="time"
-              value={alertTime}
-              onChange={(e) => setAlertTime(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium text-gray-700 block mb-1">
-              Language
-            </label>
-            <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
-              {[
-                { v: "hi", l: "Hindi" },
-                { v: "en", l: "English" },
-              ].map((o) => (
-                <button
-                  key={o.v}
-                  onClick={() => setLanguage(o.v)}
-                  className={
-                    "px-4 py-2 text-sm " +
-                    (language === o.v
-                      ? "bg-gray-900 text-white"
-                      : "bg-white text-gray-700 hover:bg-gray-50")
-                  }
-                >
-                  {o.l}
-                </button>
-              ))}
+          <div className="space-y-1">
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">This product</div>
+            <div className="text-lg font-semibold text-gray-900">
+              Editing price range for: {skuName || "selected product"}
             </div>
           </div>
 
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={notifyPrice}
-              onChange={(e) => setNotifyPrice(e.target.checked)}
-            />
-            Notify on price change
-          </label>
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={notifyStockout}
-              onChange={(e) => setNotifyStockout(e.target.checked)}
-            />
-            Notify on stockout risk
-          </label>
+          <div className="rounded-3xl border border-gray-200 bg-gray-50 p-4 space-y-4">
+            <div className="text-sm font-semibold text-gray-900">Product price range</div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">Price Floor</label>
+              <input
+                type="number"
+                min={100}
+                max={980}
+                step={20}
+                value={floor}
+                onChange={(e) => setFloor(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">Price Ceiling</label>
+              <input
+                type="number"
+                min={120}
+                max={1000}
+                step={20}
+                value={ceiling}
+                onChange={(e) => setCeiling(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+              />
+              {invalid && (
+                <p className="mt-1 text-xs text-red-600">
+                  Ceiling must be greater than floor.
+                </p>
+              )}
+            </div>
+          </div>
 
-          <div>
-            <label className="text-sm font-medium text-gray-700 flex justify-between">
-              <span>Price change threshold</span>
-              <span className="text-gray-500">{threshold}%</span>
+          <div className="rounded-3xl border border-gray-200 bg-gray-50 p-4 space-y-4">
+            <div className="text-sm font-semibold text-gray-900">Account settings</div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">Daily Alert Time</label>
+              <input
+                type="time"
+                value={alertTime}
+                onChange={(e) => setAlertTime(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1">
+                Language
+              </label>
+              <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
+                {[
+                  { v: "hi", l: "Hindi" },
+                  { v: "en", l: "English" },
+                ].map((o) => (
+                  <button
+                    key={o.v}
+                    onClick={() => setLanguage(o.v)}
+                    className={
+                      "px-4 py-2 text-sm " +
+                      (language === o.v
+                        ? "bg-gray-900 text-white"
+                        : "bg-white text-gray-700 hover:bg-gray-50")
+                    }
+                  >
+                    {o.l}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={notifyPrice}
+                onChange={(e) => setNotifyPrice(e.target.checked)}
+              />
+              Notify on price change
             </label>
-            <input
-              type="range"
-              min={2}
-              max={20}
-              step={1}
-              value={threshold}
-              onChange={(e) => setThreshold(Number(e.target.value))}
-              className="w-full mt-2"
-            />
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={notifyStockout}
+                onChange={(e) => setNotifyStockout(e.target.checked)}
+              />
+              Notify on stockout risk
+            </label>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 flex justify-between">
+                <span>Price change threshold</span>
+                <span className="text-gray-500">{threshold}%</span>
+              </label>
+              <input
+                type="range"
+                min={2}
+                max={20}
+                step={1}
+                value={threshold}
+                onChange={(e) => setThreshold(Number(e.target.value))}
+                className="w-full mt-2"
+              />
+            </div>
           </div>
 
           <button

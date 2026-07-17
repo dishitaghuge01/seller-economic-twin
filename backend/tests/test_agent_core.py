@@ -438,6 +438,19 @@ def test_parse_response_extra_whitespace_tolerated():
     assert parsed["action_summary"] == "ACTION: price | REASON: because | CONFIDENCE: high"
 
 
+def test_parse_response_ignores_extra_text_after_summary_line():
+    raw_text = (
+        "SELLER_MESSAGE:\nHi seller\n\n"
+        "REASONING_TRACE:\nReasoning details\n\n"
+        "SUMMARY:\nACTION: price | REASON: because | CONFIDENCE: high Extra trailing text\n"
+    )
+
+    parsed = agent_core._parse_agent_response(raw_text)
+
+    assert parsed["action_summary"] == "ACTION: price | REASON: because | CONFIDENCE: high"
+    assert "Extra trailing text" not in parsed["action_summary"]
+
+
 def test_api_failure_raises_agent_core_error(fake_claude, monkeypatch):
     _seed_seller_and_sku()
 

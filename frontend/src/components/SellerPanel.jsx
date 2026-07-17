@@ -136,7 +136,6 @@ export default function SellerPanel({ sellerId }) {
   if (!seller) return null;
 
   const selectedSku = seller.skus.find((s) => s.sku_id === selectedSkuId);
-  const skuIds = seller.skus.map((s) => s.sku_id);
 
   return (
     <div className="space-y-4">
@@ -153,8 +152,14 @@ export default function SellerPanel({ sellerId }) {
             Add Product
           </button>
           <button
-            onClick={() => setSettingsOpen(true)}
-            className="p-2 rounded-full hover:bg-gray-100"
+            onClick={() => selectedSku && setSettingsOpen(true)}
+            disabled={!selectedSku}
+            className={
+              "p-2 rounded-full text-sm " +
+              (selectedSku
+                ? "hover:bg-gray-100"
+                : "cursor-not-allowed opacity-50")
+            }
             aria-label="Settings"
           >
             ⚙
@@ -206,7 +211,8 @@ export default function SellerPanel({ sellerId }) {
 
       <SettingsDrawer
         sellerId={sellerId}
-        skuIds={skuIds}
+        skuId={selectedSkuId}
+        skuName={selectedSku?.sku_name}
         isOpen={isSettingsOpen}
         onClose={() => setSettingsOpen(false)}
       />

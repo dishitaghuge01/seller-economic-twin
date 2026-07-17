@@ -70,4 +70,23 @@ describe("AgentReasoningLog", () => {
 
     expect(onUserMessage).toHaveBeenCalledWith("Why is this urgent?");
   });
+
+  test("test_user_message_submit_does_not_double_send", async () => {
+    const user = userEvent.setup();
+    const onUserMessage = vi.fn().mockResolvedValue();
+
+    render(
+      <AgentReasoningLog
+        agentActions={[]}
+        onUserMessage={onUserMessage}
+      />,
+    );
+
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "Why is this urgent?");
+    await user.keyboard("{Enter}{Enter}");
+
+    expect(onUserMessage).toHaveBeenCalledTimes(1);
+    expect(onUserMessage).toHaveBeenCalledWith("Why is this urgent?");
+  });
 });

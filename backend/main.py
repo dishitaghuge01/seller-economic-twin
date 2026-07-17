@@ -47,8 +47,9 @@ class MessageRequest(BaseModel):
 
 
 class SettingsRequest(BaseModel):
-    price_floor: int
-    price_ceiling: int
+    sku_id: Optional[str] = None
+    price_floor: Optional[int] = None
+    price_ceiling: Optional[int] = None
     daily_alert_time: str
     alert_language: str
     notify_on_price_change: bool
@@ -330,8 +331,19 @@ def post_message(seller_id: str, payload: MessageRequest, seller: Seller = Depen
 
 @app.post("/seller/{seller_id}/settings")
 def post_settings(seller_id: str, payload: SettingsRequest, seller: Seller = Depends(get_current_seller_for_path)) -> dict:
-    if payload.price_floor >= payload.price_ceiling:
-        raise HTTPException(status_code=400, detail="price_floor must be less than price_ceiling")
+    if payload.price_floor is not None or payload.price_ceiling is not None:
+        if payload.price_floor is None or payload.price_ceiling is None:
+            raise HTTPException(
+                status_code=400,
+                detail="price_floor and price_ceiling must both be provided together when updating SKU pricing",
+            )
+        if payload.sku_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail="sku_id is required when updating price_floor or price_ceiling",
+            )
+        if payload.price_floor >= payload.price_ceiling:
+            raise HTTPException(status_code=400, detail="price_floor must be less than price_ceiling")
 
     if not re.fullmatch(r"([01]\d|2[0-3]):([0-5]\d)", payload.daily_alert_time):
         raise HTTPException(status_code=400, detail="daily_alert_time must be HH:MM")
@@ -346,17 +358,20 @@ def post_settings(seller_id: str, payload: SettingsRequest, seller: Seller = Dep
     )
     database.upsert_seller_settings(settings)
 
-    # The frontend currently posts settings without a SKU identifier, so the
-    # backend applies them to the seller's default-resolved SKU for now.
-    # This is a known limitation to revisit once the UI supports per-SKU settings.
-    sku_id = _resolve_default_sku(seller_id)
-    database.update_sku_price_range(sku_id, payload.price_floor, payload.price_ceiling)
-    database.recompute_price_arms(sku_id, payload.price_floor, payload.price_ceiling)
-    new_arms = database.get_price_arms(sku_id, active_only=True)
+    new_arm_count = 0
+    if payload.sku_id is not None and payload.price_floor is not None and payload.price_ceiling is not None:
+        sku = database.get_sku_by_id(payload.sku_id)
+        if sku is None or sku.seller_id != seller_id:
+            raise HTTPException(status_code=403, detail="sku_id does not belong to this seller")
+        database.update_sku_price_range(payload.sku_id, payload.price_floor, payload.price_ceiling)
+        database.recompute_price_arms(payload.sku_id, payload.price_floor, payload.price_ceiling)
+        new_arms = database.get_price_arms(payload.sku_id, active_only=True)
+        new_arm_count = len(new_arms)
+
     return {
         "status": "updated",
-        "arms_recomputed": True,
-        "new_arm_count": len(new_arms),
+        "arms_recomputed": payload.sku_id is not None and payload.price_floor is not None and payload.price_ceiling is not None,
+        "new_arm_count": new_arm_count,
     }
 
 

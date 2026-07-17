@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 const severityConfig = {
   urgent: { bg: "bg-red-100", text: "text-red-700", label: "URGENT" },
@@ -94,18 +94,21 @@ function LogEntry({ entry }) {
 export default function AgentReasoningLog({ agentActions, onUserMessage }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
   const sorted = [...agentActions].sort((a, b) =>
     (b.created_at || "").localeCompare(a.created_at || ""),
   );
 
   const handleSend = async () => {
     const t = text.trim();
-    if (!t || sending) return;
+    if (!t || sendingRef.current) return;
+    sendingRef.current = true;
     setSending(true);
     try {
       await onUserMessage(t);
       setText("");
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   };
@@ -131,7 +134,9 @@ export default function AgentReasoningLog({ agentActions, onUserMessage }) {
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                handleSend();
+                if (!sendingRef.current) {
+                  handleSend();
+                }
               }
             }}
             placeholder="e.g. Why did you keep the price at ₹410?"

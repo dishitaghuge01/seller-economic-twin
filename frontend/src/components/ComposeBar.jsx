@@ -1,19 +1,27 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const PLACEHOLDERS = ["Type a message...", "Ask your agent..."];
 
 export default function ComposeBar({ onSend, isLoading }) {
   const [text, setText] = useState("");
   const [phIdx, setPhIdx] = useState(0);
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     const t = setInterval(() => setPhIdx((i) => (i + 1) % PLACEHOLDERS.length), 3000);
     return () => clearInterval(t);
   }, []);
 
+  useEffect(() => {
+    if (!isLoading) {
+      submittingRef.current = false;
+    }
+  }, [isLoading]);
+
   const submit = () => {
     const t = text.trim();
-    if (!t || isLoading) return;
+    if (!t || isLoading || submittingRef.current) return;
+    submittingRef.current = true;
     onSend(t);
     setText("");
   };

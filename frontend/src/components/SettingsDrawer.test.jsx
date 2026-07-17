@@ -29,13 +29,29 @@ describe("SettingsDrawer", () => {
     expect(screen.getByText(/Ceiling must be greater than floor/i)).toBeInTheDocument();
   });
 
+  test("test_settings_drawer_shows_sku_name", async () => {
+    render(
+      <SettingsDrawer
+        sellerId="riya_sharma"
+        skuId="blue_kurti"
+        skuName="Blue Kurti"
+        isOpen={true}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(/Editing price range for:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Blue Kurti/i)).toBeInTheDocument();
+  });
+
   test("test_settings_drawer_save", async () => {
     const user = userEvent.setup();
 
     render(
       <SettingsDrawer
         sellerId="riya_sharma"
-        skuIds={["blue_kurti"]}
+        skuId="blue_kurti"
+        skuName="Blue Kurti"
         isOpen={true}
         onClose={() => {}}
       />,
@@ -51,7 +67,7 @@ describe("SettingsDrawer", () => {
 
     expect(spy).toHaveBeenCalledWith(
       "riya_sharma",
-      expect.objectContaining({ daily_alert_time: "10:30" }),
+      expect.objectContaining({ sku_id: "blue_kurti", daily_alert_time: "10:30" }),
     );
     spy.mockRestore();
   });
