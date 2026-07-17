@@ -137,6 +137,33 @@ export const updateSettings = async (sellerId, settings) => {
   return { status: "updated", arms_recomputed: true, new_arm_count: 5 };
 };
 
+export const triggerPricingNow = async (sellerId, skuId) => {
+  await delay(800);
+  const sku = MOCK_SKUS.find((s) => s.sku_id === skuId);
+  if (!sku) {
+    throw new Error("SKU not found");
+  }
+
+  // pick a chosen price: prefer current_chosen_price, otherwise first active arm
+  let chosen_price = sku.current_chosen_price;
+  const arms = MOCK_PRICE_ARMS[skuId] || [];
+  if (!chosen_price) {
+    if (arms.length > 0) chosen_price = arms[0].price_value;
+    else chosen_price = sku.price_floor || 0;
+  }
+
+  // update mock SKU state so UI reflects change
+  sku.current_chosen_price = chosen_price;
+
+  return {
+    sku_id: skuId,
+    chosen_price,
+    response_text: `Agent set the price to ₹${chosen_price}`,
+    reasoning_trace: `Manual trigger: selected arm ${chosen_price} based on mock policy.`,
+    action_summary: "ACTION: price | REASON: manual_trigger | CONFIDENCE: medium",
+  };
+};
+
 export const createSku = async (sellerId, skuPayload) => {
   await delay(400);
   const slug = skuPayload.sku_name

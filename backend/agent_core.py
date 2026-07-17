@@ -61,7 +61,7 @@ def run_agent_cycle(
     trace, the raw action summary, the tool name used, and the selected price/
     stockout severity.
     """
-    if trigger not in {"scheduled", "user_message"}:
+    if trigger not in {"scheduled", "user_message", "manual"}:
         raise AgentCoreError(f"Unsupported trigger: {trigger}")
 
     if trigger == "user_message" and not message_text:
@@ -92,7 +92,7 @@ def run_agent_cycle(
 
     run_pricing = False
     run_forecasting = False
-    if trigger == "scheduled":
+    if trigger in {"scheduled", "manual"}:
         run_pricing = True
         run_forecasting = True
     else:
@@ -429,7 +429,7 @@ def _build_user_prompt(
         tool_lines.append(f"Forecast lambda source: {forecast_result.get('lambda_source', 'unknown')}")
 
     task_lines = ["TASK SECTION:"]
-    if trigger == "scheduled":
+    if trigger in {"scheduled", "manual"}:
         task_lines.append(
             "Produce a short WhatsApp message telling the seller what price to set today "
             "and whether they need to restock, with the specific numbers that justify "

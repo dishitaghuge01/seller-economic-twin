@@ -329,6 +329,31 @@ def post_message(seller_id: str, payload: MessageRequest, seller: Seller = Depen
     }
 
 
+@app.post("/seller/{seller_id}/sku/{sku_id}/trigger")
+def post_trigger_pricing(seller_id: str, sku_id: str, seller: Seller = Depends(get_current_seller_for_path)) -> dict:
+    # Manual trigger for a specific SKU: runs the agent cycle with trigger="manual"
+    sku = database.get_sku_by_id(sku_id)
+    if sku is None or sku.seller_id != seller_id:
+        raise HTTPException(status_code=404, detail="SKU not found")
+
+    try:
+        result = run_agent_cycle(seller_id, sku_id, trigger="manual")
+    except AgentCoreError as exc:
+        logger.error("Agent cycle failed (manual trigger)", exc_info=exc)
+        raise HTTPException(
+            status_code=503,
+            detail="The agent is temporarily unavailable. Please try again in a moment.",
+        ) from exc
+
+    return {
+        "sku_id": sku_id,
+        "chosen_price": result.get("chosen_price"),
+        "response_text": result["seller_message"],
+        "reasoning_trace": result["reasoning_trace"],
+        "action_summary": result["action_summary"],
+    }
+
+
 @app.post("/seller/{seller_id}/settings")
 def post_settings(seller_id: str, payload: SettingsRequest, seller: Seller = Depends(get_current_seller_for_path)) -> dict:
     if payload.price_floor is not None or payload.price_ceiling is not None:

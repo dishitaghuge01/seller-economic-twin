@@ -93,6 +93,12 @@ export const updateSettings = async (sellerId, settings) => {
   });
 };
 
+export const triggerPricingNow = async (sellerId, skuId) => {
+  return request(`/seller/${sellerId}/sku/${skuId}/trigger`, {
+    method: "POST",
+  });
+};
+
 export const createSku = async (sellerId, skuPayload) => {
   return request(`/seller/${sellerId}/skus`, {
     method: "POST",

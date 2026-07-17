@@ -279,6 +279,53 @@ def test_post_message_calls_agent_core(client, monkeypatch):
     }
 
 
+def test_post_trigger_calls_agent_core(client, monkeypatch):
+    seller, sku = _seed_seller()
+
+    def fake_run_agent_cycle(seller_id, sku_id, trigger, message_text=None):
+        assert seller_id == seller.seller_id
+        assert sku_id == sku.sku_id
+        assert trigger == "manual"
+        return {
+            "seller_message": "Manual run",
+            "reasoning_trace": "Reasoning",
+            "action_summary": "Action",
+            "tool_called": "pricing",
+            "chosen_price": 350,
+            "stockout_severity": "watch",
+        }
+
+    monkeypatch.setattr(api_module, "run_agent_cycle", fake_run_agent_cycle)
+    response = client.post(
+        f"/seller/{seller.seller_id}/sku/{sku.sku_id}/trigger",
+        headers=_auth_header(seller.auth_user_id),
+    )
+    assert response.status_code == 200
+    assert response.json()["sku_id"] == sku.sku_id
+    assert response.json()["chosen_price"] == 350
+
+
+def test_post_trigger_unknown_sku_returns_404(client):
+    seller, _ = _seed_seller()
+    response = client.post(f"/seller/{seller.seller_id}/sku/not-a-sku/trigger", headers=_auth_header(seller.auth_user_id))
+    assert response.status_code == 404
+
+
+def test_post_trigger_agent_core_error_returns_503(client, monkeypatch):
+    seller, sku = _seed_seller()
+
+    def fake_run_agent_cycle(*args, **kwargs):
+        raise api_module.AgentCoreError("boom")
+
+    monkeypatch.setattr(api_module, "run_agent_cycle", fake_run_agent_cycle)
+    response = client.post(
+        f"/seller/{seller.seller_id}/sku/{sku.sku_id}/trigger",
+        headers=_auth_header(seller.auth_user_id),
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"] == "The agent is temporarily unavailable. Please try again in a moment."
+
+
 def test_post_message_agent_core_error_returns_503(client, monkeypatch):
     seller, _ = _seed_seller()
 
