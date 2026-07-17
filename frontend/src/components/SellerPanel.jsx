@@ -25,17 +25,23 @@ export default function SellerPanel({ sellerId }) {
   const [newPriceFloor, setNewPriceFloor] = useState(100);
   const [newPriceCeiling, setNewPriceCeiling] = useState(140);
 
-  const loadSeller = useCallback(() => {
+  const loadSeller = useCallback(async () => {
     setLoading(true);
     setErr(null);
-    apiClient
-      .getSeller(sellerId)
-      .then((d) => {
-        setSeller(d);
-        if (d.skus?.[0]) setSelectedSkuId(d.skus[0].sku_id);
-      })
-      .catch((e) => setErr(e.message || "Failed to load"))
-      .finally(() => setLoading(false));
+    try {
+      const d = await apiClient.getSeller(sellerId);
+      setSeller(d);
+      setSelectedSkuId((prev) => {
+        if (prev && d.skus?.some((s) => s.sku_id === prev)) return prev;
+        return d.skus?.[0]?.sku_id ?? null;
+      });
+      return d;
+    } catch (e) {
+      setErr(e.message || "Failed to load");
+      throw e;
+    } finally {
+      setLoading(false);
+    }
   }, [sellerId]);
 
   useEffect(() => {
@@ -198,10 +204,8 @@ export default function SellerPanel({ sellerId }) {
                   setErr(null);
                   try {
                     await apiClient.triggerPricingNow(sellerId, selectedSkuId);
-                    // refresh seller and history
+                    // refresh seller; let the selectedSkuId effect fetch history
                     await loadSeller();
-                    const newHistory = await apiClient.getSkuHistory(sellerId, selectedSkuId);
-                    setHistory(newHistory);
                   } catch (e) {
                     setErr(e.message || String(e));
                   } finally {
