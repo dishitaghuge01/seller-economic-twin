@@ -19,6 +19,49 @@ function maybeSignOut() {
   window.dispatchEvent(new CustomEvent("seller-twin-auth-change", { detail: { authenticated: false } }));
 }
 
+export function _extractErrorMessage(parsedBody, bodyText, res) {
+  const detail = parsedBody?.detail;
+
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((item) => {
+        if (!item || typeof item !== "object") {
+          return null;
+        }
+
+        const loc = Array.isArray(item.loc)
+          ? item.loc.filter(Boolean).join(".")
+          : "";
+        const message = typeof item.msg === "string" ? item.msg : "";
+
+        if (loc && message) {
+          return `${loc}: ${message}`;
+        }
+
+        return message || loc || null;
+      })
+      .filter(Boolean);
+
+    if (parts.length > 0) {
+      return parts.join("; ");
+    }
+  }
+
+  if (typeof detail === "string" && detail) {
+    return detail;
+  }
+
+  if (typeof parsedBody?.message === "string" && parsedBody.message) {
+    return parsedBody.message;
+  }
+
+  if (typeof bodyText === "string" && bodyText) {
+    return bodyText;
+  }
+
+  return `${res.status} ${res.statusText}`;
+}
+
 async function request(path, options = {}) {
   const authHeader = getAuthHeader();
   const headers = {
@@ -57,7 +100,7 @@ async function request(path, options = {}) {
       throw error;
     }
 
-    const detail = parsedBody?.detail || parsedBody?.message || bodyText || `${res.status} ${res.statusText}`;
+    const detail = _extractErrorMessage(parsedBody, bodyText, res);
     const error = new Error(detail);
     error.status = res.status;
     throw error;

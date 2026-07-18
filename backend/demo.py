@@ -63,10 +63,6 @@ def _check_demo_access(seller_id: str) -> None:
         raise HTTPException(status_code=403, detail="Demo simulation is not available for this account.")
 
 
-class DemoResetRequest(BaseModel):
-    pass
-
-
 class DemoStartResponse(BaseModel):
     status: str
     current_day: int
@@ -162,7 +158,6 @@ def _assign_arcs(seller_id: str) -> tuple[str, str]:
 @router.post("/seller/{seller_id}/demo/reset")
 async def demo_reset(
     seller_id: str,
-    request: DemoResetRequest,
     current_seller: Seller = Depends(_authorize_demo_request),
 ) -> dict:
     """Reset demo data to seeded state."""

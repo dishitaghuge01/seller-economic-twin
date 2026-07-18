@@ -31,3 +31,46 @@ describe("api auth headers", () => {
     );
   });
 });
+
+describe("api error handling", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem("seller_twin_token", "demo-token");
+  });
+
+  it("extracts a readable message from FastAPI 422 array detail errors", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 422,
+      statusText: "Unprocessable Content",
+      headers: {
+        get: () => "application/json",
+      },
+      text: () => Promise.resolve(JSON.stringify({
+        detail: [{ loc: ["body", "sku_id"], msg: "Field required", type: "missing" }],
+      })),
+    });
+
+    await expect(getSeller("riya_sharma")).rejects.toMatchObject({
+      message: "body.sku_id: Field required",
+      status: 422,
+    });
+  });
+
+  it("preserves string detail messages from normal HTTP errors", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+      headers: {
+        get: () => "application/json",
+      },
+      text: () => Promise.resolve(JSON.stringify({ detail: "Bad request" })),
+    });
+
+    await expect(getSeller("riya_sharma")).rejects.toMatchObject({
+      message: "Bad request",
+      status: 400,
+    });
+  });
+});
