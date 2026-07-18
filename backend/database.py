@@ -13,7 +13,9 @@ than the direct connection (port 5432) when deploying to a
 serverless/autoscaling environment.
 """
 
+import logging
 import os
+import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, date, timedelta, timezone
@@ -21,13 +23,13 @@ from typing import Optional, List, Dict, Any
 
 import psycopg2
 import psycopg2.extras
-from psycopg2.pool import SimpleConnectionPool
+from psycopg2.pool import ThreadedConnectionPool
 
 from models import Seller, SKU, Order, PriceArm, AgentAction, Conversation, SellerSettings
 
 DATABASE_URL = os.environ["SUPABASE_DB_URL"]
 
-_pool = SimpleConnectionPool(minconn=1, maxconn=10, dsn=DATABASE_URL)
+_pool = ThreadedConnectionPool(minconn=1, maxconn=10, dsn=DATABASE_URL)
 
 
 def _normalize_datetime(value: Any) -> Any:
@@ -50,7 +52,11 @@ def get_connection():
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute("SELECT ...")
     """
+    start = time.perf_counter()
     conn = _pool.getconn()
+    elapsed = time.perf_counter() - start
+    if elapsed > 0.5:
+        logging.info("pool getconn took %.3fs", elapsed)
     try:
         yield conn
         conn.commit()

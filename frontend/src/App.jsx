@@ -4,6 +4,7 @@ import SellerPanel from "./components/SellerPanel.jsx";
 import WhatsAppPanel from "./components/WhatsAppPanel.jsx";
 import WhatsAppToast from "./components/WhatsAppToast.jsx";
 import LoginScreen from "./components/LoginScreen.jsx";
+import ErrorBoundary from "./components/ErrorBoundary.jsx";
 
 const FALLBACK_SELLER_ID = import.meta.env.VITE_SELLER_ID || "riya_sharma";
 
@@ -214,9 +215,13 @@ export default function App() {
 
       <main className="mx-auto max-w-4xl px-4 py-6">
         {activeTab === "seller" ? (
-          <SellerPanel sellerId={sellerId} isDemoSeller={isDemoSeller} onDemoNotification={handleDemoNotification} />
+          <ErrorBoundary>
+            <SellerPanel sellerId={sellerId} isDemoSeller={isDemoSeller} onDemoNotification={handleDemoNotification} />
+          </ErrorBoundary>
         ) : (
-          <WhatsAppPanel sellerId={sellerId} />
+          <ErrorBoundary>
+            <WhatsAppPanel sellerId={sellerId} />
+          </ErrorBoundary>
         )}
       </main>
     </div>

@@ -47,10 +47,21 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
   const [toast, setToast] = useState("");
   const [isComplete, setIsComplete] = useState(false);
   const stopRequestedRef = useRef(false);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
-    const timer = window.setTimeout(() => setToast(""), 4000);
+    const timer = window.setTimeout(() => {
+      if (isMountedRef.current) {
+        setToast("");
+      }
+    }, 4000);
     return () => window.clearTimeout(timer);
   }, [toast]);
 
@@ -60,7 +71,7 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
     const hydrateStatus = async () => {
       try {
         const res = await apiClient.getDemoStatus(sellerId);
-        if (cancelled) return;
+        if (cancelled || !isMountedRef.current) return;
         if (res?.status === "running" && res.current_day != null) {
           const nextDay = Number(res.current_day || 0);
           const limit = Number(res.max_days || 6);
@@ -98,8 +109,10 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
     setError("");
     try {
       await apiClient.resetDemo(sellerId);
+      if (!isMountedRef.current) return;
       await onReset?.();
     } catch (err) {
+      if (!isMountedRef.current) return;
       setError(err.message || "Unable to reset demo.");
     }
   };
@@ -130,10 +143,12 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
 
       while (!stopRequestedRef.current) {
         const nextDay = currentValue + 1;
+        if (!isMountedRef.current) return;
         setCurrentDay(nextDay);
         setStatus(`Day ${nextDay} of ${activeMaxDays} — simulating...`);
 
         const stepResponse = await apiClient.stepDemo(sellerId);
+        if (!isMountedRef.current) return;
         const line = buildLogLine(stepResponse);
         setLogs((prev) => [...prev, line]);
 
@@ -146,12 +161,14 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
 
         currentValue = Number(stepResponse?.day || nextDay);
         if (currentValue >= activeMaxDays) {
+          if (!isMountedRef.current) return;
           setIsComplete(true);
           setStatus("Demo complete");
           break;
         }
 
         if (stopRequestedRef.current) {
+          if (!isMountedRef.current) return;
           setStatus("Demo stopped");
           break;
         }
@@ -159,10 +176,13 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
         await delay(1200);
       }
     } catch (err) {
+      if (!isMountedRef.current) return;
       setError(err.message || "Demo failed.");
       setStatus("Demo failed");
     } finally {
-      setIsRunning(false);
+      if (isMountedRef.current) {
+        setIsRunning(false);
+      }
     }
   };
 

@@ -2,11 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import apiClient from "../apiClient.js";
 import MessageBubble from "./MessageBubble.jsx";
 import ComposeBar from "./ComposeBar.jsx";
+import TypingIndicator from "./TypingIndicator.jsx";
 
 export default function WhatsAppPanel({ sellerId }) {
   const [messages, setMessages] = useState([]);
   const [showReasoning, setShowReasoning] = useState(false);
   const [sending, setSending] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const initialLoadRef = useRef(true);
   const scrollRef = useRef(null);
 
   useEffect(() => {
@@ -14,6 +17,10 @@ export default function WhatsAppPanel({ sellerId }) {
     const load = () =>
       apiClient.getConversations(sellerId).then((d) => {
         if (cancelled) return;
+        if (initialLoadRef.current) {
+          initialLoadRef.current = false;
+          setInitialLoading(false);
+        }
         setMessages((prev) => {
           // merge, keep any optimistic messages not yet on server
           const ids = new Set(d.messages.map((m) => m.message_id));
@@ -98,14 +105,29 @@ export default function WhatsAppPanel({ sellerId }) {
           backgroundSize: "20px 20px",
         }}
       >
-        {messages.map((m) => (
-          <MessageBubble
-            key={m.message_id}
-            message={m}
-            showReasoning={showReasoning}
-            relatedAction={m._related_action}
-          />
-        ))}
+        {initialLoading ? (
+          <>
+            <div className="flex justify-end mb-2">
+              <div className="w-40 h-10 rounded-2xl rounded-br-sm bg-[#dcf8c6]" />
+            </div>
+            <div className="flex justify-start mb-2">
+              <div className="w-52 h-12 rounded-2xl rounded-bl-sm bg-white" />
+            </div>
+            <div className="flex justify-end mb-2">
+              <div className="w-36 h-10 rounded-2xl rounded-br-sm bg-[#dcf8c6]" />
+            </div>
+          </>
+        ) : (
+          messages.map((m) => (
+            <MessageBubble
+              key={m.message_id}
+              message={m}
+              showReasoning={showReasoning}
+              relatedAction={m._related_action}
+            />
+          ))
+        )}
+        {sending && <TypingIndicator />}
       </div>
 
       <ComposeBar onSend={handleSend} isLoading={sending} />

@@ -26,7 +26,6 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
   const [newPriceFloor, setNewPriceFloor] = useState(100);
   const [newPriceCeiling, setNewPriceCeiling] = useState(140);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
-  const [activeSkuId, setActiveSkuId] = useState(null);
   const chartSectionRef = useRef(null);
 
   const loadSeller = useCallback(async ({ silent = false } = {}) => {
@@ -37,7 +36,6 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
       setSeller(d);
       setSelectedSkuId((prev) => {
         const nextSkuId = prev && d.skus?.some((s) => s.sku_id === prev) ? prev : d.skus?.[0]?.sku_id ?? null;
-        setActiveSkuId(nextSkuId);
         return nextSkuId;
       });
       return d;
@@ -102,7 +100,6 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
       setNewReorderPoint(0);
       setNewPriceFloor(100);
       setNewPriceCeiling(140);
-      setActiveSkuId(newSku.sku_id);
       setSelectedSkuId(newSku.sku_id);
       void loadSeller({ silent: true });
     } catch (e) {
@@ -141,9 +138,9 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
 
   const handleDemoReset = useCallback(async () => {
     await loadSeller();
-    await refreshHistory({ silent: true, skuId: activeSkuId || selectedSkuId });
+    await refreshHistory({ silent: true, skuId: selectedSkuId });
     setHistoryRefreshKey((value) => value + 1);
-  }, [activeSkuId, loadSeller, refreshHistory, selectedSkuId]);
+  }, [loadSeller, refreshHistory, selectedSkuId]);
 
   const handleDemoStepCompleted = useCallback(async (stepResponse) => {
     const candidateSkus = [stepResponse?.shock_sku, stepResponse?.depletion_sku].filter(Boolean);
@@ -163,11 +160,14 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
     const targetSkuId = matchedSku?.sku_id || selectedSkuId;
 
     if (targetSkuId) {
-      setActiveSkuId(targetSkuId);
       if (targetSkuId !== selectedSkuId) {
         setSelectedSkuId(targetSkuId);
+      }
+      if (matchedSku) {
         await new Promise((resolve) => setTimeout(resolve, 150));
-        chartSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (typeof chartSectionRef.current?.scrollIntoView === "function") {
+          chartSectionRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
       }
     }
 
@@ -228,7 +228,7 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
   }
   if (!seller) return null;
 
-  const selectedSku = seller.skus.find((s) => s.sku_id === (activeSkuId ?? selectedSkuId));
+  const selectedSku = seller.skus.find((s) => s.sku_id === selectedSkuId);
 
   return (
     <div className="space-y-4">
@@ -283,11 +283,8 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
       ) : (
         <SKUSummaryCards
           skus={seller.skus}
-          selectedSkuId={activeSkuId ?? selectedSkuId}
-          onSelectSku={(skuId) => {
-            setSelectedSkuId(skuId);
-            setActiveSkuId(skuId);
-          }}
+          selectedSkuId={selectedSkuId}
+          onSelectSku={setSelectedSkuId}
         />
       )}
 
@@ -325,10 +322,10 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
           ) : (
             <div ref={chartSectionRef} className="space-y-4">
               <PriceExplorationChart
-                skuId={activeSkuId ?? selectedSkuId}
+                skuId={selectedSkuId}
                 priceArms={history.price_arms}
               />
-              <ForecastFanChart skuId={activeSkuId ?? selectedSkuId} sellerId={sellerId} refreshKey={historyRefreshKey} />
+              <ForecastFanChart skuId={selectedSkuId} sellerId={sellerId} refreshKey={historyRefreshKey} />
               <ShockEventChart orderHistory={history.order_history} />
               <AgentReasoningLog
                 agentActions={history.agent_actions}

@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import TypingIndicator from "./TypingIndicator.jsx";
 
 const severityConfig = {
   urgent: { bg: "bg-red-100", text: "text-red-700", label: "URGENT" },
@@ -120,6 +121,7 @@ export default function AgentReasoningLog({ agentActions, onUserMessage }) {
         {sorted.map((e) => (
           <LogEntry key={e.action_id} entry={e} />
         ))}
+        {sending && <TypingIndicator />}
       </div>
 
       <div className="mt-4 border-t border-gray-100 pt-3">
