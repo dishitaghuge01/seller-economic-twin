@@ -811,6 +811,33 @@ def upsert_price_arm(arm: PriceArm, conn=None) -> None:
             )
 
 
+def _recompute_price_arms_with_cursor(cur, sku_id: str, new_arm_values: List[int], now: datetime) -> None:
+    # Deactivate arms outside new range in one statement.
+    placeholders = ",".join(["%s"] * len(new_arm_values))
+    cur.execute(
+        f"""UPDATE price_arms SET is_active = FALSE, last_updated = %s
+           WHERE sku_id = %s AND price_value NOT IN ({placeholders})""",
+        ([now, sku_id] + new_arm_values)
+    )
+    # Reactivate-or-create every in-range arm in a single bulk UPSERT.
+    # ON CONFLICT only touches is_active/last_updated on existing rows,
+    # leaving alpha/beta_param/times_chosen untouched (preserves learned state).
+    psycopg2.extras.execute_values(
+        cur,
+        """INSERT INTO price_arms
+           (arm_id, sku_id, price_value, alpha, beta_param,
+            times_chosen, is_active, last_updated)
+           VALUES %s
+           ON CONFLICT (sku_id, price_value) DO UPDATE SET
+               is_active = TRUE,
+               last_updated = EXCLUDED.last_updated""",
+        [
+            (str(uuid.uuid4()), sku_id, price_val, 1.0, 1.0, 0, True, now)
+            for price_val in sorted(new_arm_values)
+        ],
+    )
+
+
 def recompute_price_arms(sku_id: str, new_floor: int, new_ceiling: int, conn=None) -> None:
     """
     Called when seller changes their price floor or ceiling. This is the
@@ -819,67 +846,21 @@ def recompute_price_arms(sku_id: str, new_floor: int, new_ceiling: int, conn=Non
     - Reactivates arms that were previously deactivated but are now in range
     - Creates new arms for prices not previously seen
     All new arms start with Beta(1,1) prior.
+
+    Uses two round trips total (one deactivate, one bulk upsert) instead of
+    one per arm, regardless of how many price points are in [new_floor, new_ceiling].
     """
     new_arm_values = list(range(new_floor, new_ceiling + 1, 20))
-    existing_arms = get_price_arms(sku_id, active_only=False, conn=conn)
-    existing_values = {a.price_value: a for a in existing_arms}
-
     now = datetime.now(timezone.utc)
+
     if conn is not None:
         with get_cursor(conn) as cur:
-            # Deactivate arms outside new range
-            # Build a dynamic-length NOT IN (...) clause with %s placeholders
-            placeholders = ",".join(["%s"] * len(new_arm_values))
-            cur.execute(
-                f"""UPDATE price_arms SET is_active = FALSE, last_updated = %s
-                   WHERE sku_id = %s AND price_value NOT IN ({placeholders})""",
-                ([now, sku_id] + new_arm_values)
-            )
-            # Reactivate or create arms within new range
-            for price_val in sorted(new_arm_values):
-                if price_val in existing_values:
-                    cur.execute(
-                        """UPDATE price_arms SET is_active = TRUE, last_updated = %s
-                           WHERE sku_id = %s AND price_value = %s""",
-                        (now, sku_id, price_val)
-                    )
-                else:
-                    cur.execute(
-                        """INSERT INTO price_arms
-                           (arm_id, sku_id, price_value, alpha, beta_param,
-                            times_chosen, is_active, last_updated)
-                           VALUES (%s,%s,%s,1.0,1.0,0,TRUE,%s)""",
-                        (str(uuid.uuid4()), sku_id, price_val, now)
-                    )
+            _recompute_price_arms_with_cursor(cur, sku_id, new_arm_values, now)
         return
 
     with get_connection() as conn:
         with get_cursor(conn) as cur:
-            # Deactivate arms outside new range
-            # Build a dynamic-length NOT IN (...) clause with %s placeholders
-            placeholders = ",".join(["%s"] * len(new_arm_values))
-            cur.execute(
-                f"""UPDATE price_arms SET is_active = FALSE, last_updated = %s
-                   WHERE sku_id = %s AND price_value NOT IN ({placeholders})""",
-                ([now, sku_id] + new_arm_values)
-            )
-            # Reactivate or create arms within new range
-            for price_val in sorted(new_arm_values):
-                if price_val in existing_values:
-                    cur.execute(
-                        """UPDATE price_arms SET is_active = TRUE, last_updated = %s
-                           WHERE sku_id = %s AND price_value = %s""",
-                        (now, sku_id, price_val)
-                    )
-                else:
-                    cur.execute(
-                        """INSERT INTO price_arms
-                           (arm_id, sku_id, price_value, alpha, beta_param,
-                            times_chosen, is_active, last_updated)
-                           VALUES (%s,%s,%s,1.0,1.0,0,TRUE,%s)""",
-                        (str(uuid.uuid4()), sku_id, price_val, now)
-                    )
-
+            _recompute_price_arms_with_cursor(cur, sku_id, new_arm_values, now)
 
 def _row_to_arm(row: Dict[str, Any]) -> PriceArm:
     return PriceArm(
