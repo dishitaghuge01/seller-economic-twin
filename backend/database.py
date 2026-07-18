@@ -25,7 +25,7 @@ import psycopg2
 import psycopg2.extras
 from psycopg2.pool import ThreadedConnectionPool
 
-from models import Seller, SKU, Order, PriceArm, AgentAction, Conversation, SellerSettings
+from models import Seller, SKU, Order, PriceArm, AgentAction, Conversation, SellerSettings, DemoState
 
 DATABASE_URL = os.environ["SUPABASE_DB_URL"]
 
@@ -390,7 +390,13 @@ def insert_seller(seller: Seller) -> None:
             )
 
 
-def get_seller_by_id(seller_id: str) -> Optional[Seller]:
+def get_seller_by_id(seller_id: str, conn=None) -> Optional[Seller]:
+    if conn is not None:
+        with get_cursor(conn) as cur:
+            cur.execute("SELECT * FROM sellers WHERE seller_id = %s", (seller_id,))
+            row = cur.fetchone()
+        return _row_to_seller(row) if row else None
+
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute("SELECT * FROM sellers WHERE seller_id = %s", (seller_id,))
@@ -536,7 +542,13 @@ def get_skus_for_seller(seller_id: str) -> List[SKU]:
     return [_row_to_sku(r) for r in rows]
 
 
-def get_sku_by_id(sku_id: str) -> Optional[SKU]:
+def get_sku_by_id(sku_id: str, conn=None) -> Optional[SKU]:
+    if conn is not None:
+        with get_cursor(conn) as cur:
+            cur.execute("SELECT * FROM skus WHERE sku_id = %s", (sku_id,))
+            row = cur.fetchone()
+        return _row_to_sku(row) if row else None
+
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute("SELECT * FROM skus WHERE sku_id = %s", (sku_id,))
@@ -544,7 +556,15 @@ def get_sku_by_id(sku_id: str) -> Optional[SKU]:
     return _row_to_sku(row) if row else None
 
 
-def update_sku_stock(sku_id: str, new_stock: int) -> None:
+def update_sku_stock(sku_id: str, new_stock: int, conn=None) -> None:
+    if conn is not None:
+        with get_cursor(conn) as cur:
+            cur.execute(
+                "UPDATE skus SET current_stock = %s WHERE sku_id = %s",
+                (new_stock, sku_id)
+            )
+        return
+
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute(
@@ -553,8 +573,16 @@ def update_sku_stock(sku_id: str, new_stock: int) -> None:
             )
 
 
-def update_sku_chosen_price(sku_id: str, price: int) -> None:
+def update_sku_chosen_price(sku_id: str, price: int, conn=None) -> None:
     """Called by Agent Core after each pricing cycle."""
+    if conn is not None:
+        with get_cursor(conn) as cur:
+            cur.execute(
+                "UPDATE skus SET current_chosen_price = %s WHERE sku_id = %s",
+                (price, sku_id)
+            )
+        return
+
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute(
@@ -594,7 +622,19 @@ def _row_to_sku(row: Dict[str, Any]) -> SKU:
 # Query Helper Functions -- Orders
 # ---------------------------------------------------------------------------
 
-def insert_order(order: Order) -> None:
+def insert_order(order: Order, conn=None) -> None:
+    if conn is not None:
+        with get_cursor(conn) as cur:
+            cur.execute(
+                """INSERT INTO orders
+                   (order_id, sku_id, seller_id, order_date,
+                    units_sold, price_charged, revenue, margin)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (order.order_id, order.sku_id, order.seller_id, order.order_date,
+                 order.units_sold, order.price_charged, order.revenue, order.margin)
+            )
+        return
+
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute(
@@ -621,7 +661,7 @@ def insert_orders_bulk(orders: List[Order]) -> None:
             )
 
 
-def get_order_history(sku_id: str, days: int = 30) -> List[Order]:
+def get_order_history(sku_id: str, days: int = 30, conn=None) -> List[Order]:
     """
     Returns the orders for the last `days` days for a SKU, newest first.
     This is the primary data source for both statistical tools.
@@ -629,6 +669,17 @@ def get_order_history(sku_id: str, days: int = 30) -> List[Order]:
     if days <= 0:
         return []
     cutoff_date = date.today() - timedelta(days=days - 1)
+    if conn is not None:
+        with get_cursor(conn) as cur:
+            cur.execute(
+                """SELECT * FROM orders
+                   WHERE sku_id = %s AND order_date >= %s
+                   ORDER BY order_date DESC""",
+                (sku_id, cutoff_date)
+            )
+            rows = cur.fetchall()
+        return [_row_to_order(r) for r in rows]
+
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute(
@@ -641,11 +692,23 @@ def get_order_history(sku_id: str, days: int = 30) -> List[Order]:
     return [_row_to_order(r) for r in rows]
 
 
-def get_yesterday_order(sku_id: str) -> Optional[Order]:
+def get_yesterday_order(sku_id: str, conn=None) -> Optional[Order]:
     """
     Returns the single most recent order record for a SKU, if it exists.
     Used by the Pricing Tool to classify yesterday's outcome.
     """
+    if conn is not None:
+        with get_cursor(conn) as cur:
+            cur.execute(
+                """SELECT * FROM orders
+                   WHERE sku_id = %s
+                   ORDER BY order_date DESC
+                   LIMIT 1""",
+                (sku_id,)
+            )
+            row = cur.fetchone()
+        return _row_to_order(row) if row else None
+
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute(
@@ -672,12 +735,18 @@ def _row_to_order(row: Dict[str, Any]) -> Order:
 # Query Helper Functions -- Price Arms
 # ---------------------------------------------------------------------------
 
-def get_price_arms(sku_id: str, active_only: bool = True) -> List[PriceArm]:
+def get_price_arms(sku_id: str, active_only: bool = True, conn=None) -> List[PriceArm]:
     query = "SELECT * FROM price_arms WHERE sku_id = %s"
     params: List[Any] = [sku_id]
     if active_only:
         query += " AND is_active = TRUE"
     query += " ORDER BY price_value ASC"
+    if conn is not None:
+        with get_cursor(conn) as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+        return [_row_to_arm(r) for r in rows]
+
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute(query, params)
@@ -700,12 +769,30 @@ def insert_price_arms_bulk(arms: List[PriceArm]) -> None:
             )
 
 
-def upsert_price_arm(arm: PriceArm) -> None:
+def upsert_price_arm(arm: PriceArm, conn=None) -> None:
     """
     Insert or update a price arm, keyed on the (sku_id, price_value)
     UNIQUE constraint. Called by Agent Core after each pricing cycle
     with the updated_arms list.
     """
+    if conn is not None:
+        with get_cursor(conn) as cur:
+            cur.execute(
+                """INSERT INTO price_arms
+                   (arm_id, sku_id, price_value, alpha, beta_param,
+                    times_chosen, is_active, last_updated)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                   ON CONFLICT (sku_id, price_value) DO UPDATE SET
+                       alpha=EXCLUDED.alpha,
+                       beta_param=EXCLUDED.beta_param,
+                       times_chosen=EXCLUDED.times_chosen,
+                       is_active=EXCLUDED.is_active,
+                       last_updated=EXCLUDED.last_updated""",
+                (arm.arm_id, arm.sku_id, arm.price_value, arm.alpha, arm.beta_param,
+                 arm.times_chosen, arm.is_active, arm.last_updated)
+            )
+        return
+
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute(
@@ -724,7 +811,7 @@ def upsert_price_arm(arm: PriceArm) -> None:
             )
 
 
-def recompute_price_arms(sku_id: str, new_floor: int, new_ceiling: int) -> None:
+def recompute_price_arms(sku_id: str, new_floor: int, new_ceiling: int, conn=None) -> None:
     """
     Called when seller changes their price floor or ceiling. This is the
     *only* function permitted to reconcile the arm grid.
@@ -734,10 +821,38 @@ def recompute_price_arms(sku_id: str, new_floor: int, new_ceiling: int) -> None:
     All new arms start with Beta(1,1) prior.
     """
     new_arm_values = list(range(new_floor, new_ceiling + 1, 20))
-    existing_arms = get_price_arms(sku_id, active_only=False)
+    existing_arms = get_price_arms(sku_id, active_only=False, conn=conn)
     existing_values = {a.price_value: a for a in existing_arms}
 
     now = datetime.now(timezone.utc)
+    if conn is not None:
+        with get_cursor(conn) as cur:
+            # Deactivate arms outside new range
+            # Build a dynamic-length NOT IN (...) clause with %s placeholders
+            placeholders = ",".join(["%s"] * len(new_arm_values))
+            cur.execute(
+                f"""UPDATE price_arms SET is_active = FALSE, last_updated = %s
+                   WHERE sku_id = %s AND price_value NOT IN ({placeholders})""",
+                ([now, sku_id] + new_arm_values)
+            )
+            # Reactivate or create arms within new range
+            for price_val in sorted(new_arm_values):
+                if price_val in existing_values:
+                    cur.execute(
+                        """UPDATE price_arms SET is_active = TRUE, last_updated = %s
+                           WHERE sku_id = %s AND price_value = %s""",
+                        (now, sku_id, price_val)
+                    )
+                else:
+                    cur.execute(
+                        """INSERT INTO price_arms
+                           (arm_id, sku_id, price_value, alpha, beta_param,
+                            times_chosen, is_active, last_updated)
+                           VALUES (%s,%s,%s,1.0,1.0,0,TRUE,%s)""",
+                        (str(uuid.uuid4()), sku_id, price_val, now)
+                    )
+        return
+
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             # Deactivate arms outside new range
@@ -780,7 +895,25 @@ def _row_to_arm(row: Dict[str, Any]) -> PriceArm:
 # Query Helper Functions -- Agent Actions
 # ---------------------------------------------------------------------------
 
-def insert_agent_action(action: AgentAction) -> None:
+def insert_agent_action(action: AgentAction, conn=None) -> None:
+    if conn is not None:
+        with get_cursor(conn) as cur:
+            cur.execute(
+                """INSERT INTO agent_actions
+                   (action_id, sku_id, seller_id, action_date, tool_called,
+                    trigger, chosen_price, stockout_probability_5d,
+                    stockout_probability_10d, stockout_severity, seller_message,
+                    reasoning_trace, delivered_via, created_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (action.action_id, action.sku_id, action.seller_id,
+                 action.action_date, action.tool_called, action.trigger,
+                 action.chosen_price, action.stockout_probability_5d,
+                 action.stockout_probability_10d, action.stockout_severity,
+                 action.seller_message, action.reasoning_trace, action.delivered_via,
+                 action.created_at)
+            )
+        return
+
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute(
@@ -814,8 +947,20 @@ def get_agent_action_history(sku_id: str, limit: int = 30) -> List[AgentAction]:
     return [_row_to_action(r) for r in rows]
 
 
-def get_last_agent_action(sku_id: str) -> Optional[AgentAction]:
+def get_last_agent_action(sku_id: str, conn=None) -> Optional[AgentAction]:
     """Returns the single most recent agent action for a SKU."""
+    if conn is not None:
+        with get_cursor(conn) as cur:
+            cur.execute(
+                """SELECT * FROM agent_actions
+                   WHERE sku_id = %s
+                   ORDER BY created_at DESC
+                   LIMIT 1""",
+                (sku_id,)
+            )
+            row = cur.fetchone()
+        return _row_to_action(row) if row else None
+
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute(
@@ -862,8 +1007,20 @@ def insert_conversation_message(msg: Conversation) -> None:
             )
 
 
-def get_conversation_history(seller_id: str, limit: int = 20) -> List[Conversation]:
+def get_conversation_history(seller_id: str, limit: int = 20, conn=None) -> List[Conversation]:
     """Returns last `limit` messages, newest first."""
+    if conn is not None:
+        with get_cursor(conn) as cur:
+            cur.execute(
+                """SELECT * FROM conversations
+                   WHERE seller_id = %s
+                   ORDER BY created_at DESC
+                   LIMIT %s""",
+                (seller_id, limit)
+            )
+            rows = cur.fetchall()
+        return [_row_to_conversation(r) for r in rows]
+
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute(
@@ -905,11 +1062,40 @@ def _row_to_conversation(row: Dict[str, Any]) -> Conversation:
 # Query Helper Functions -- Seller Settings
 # ---------------------------------------------------------------------------
 
-def get_seller_settings(seller_id: str) -> SellerSettings:
+def get_seller_settings(seller_id: str, conn=None) -> SellerSettings:
     """
     Returns settings for a seller. If no row exists (new seller),
     creates and returns default settings. Never returns None.
     """
+    if conn is not None:
+        with get_cursor(conn) as cur:
+            cur.execute(
+                "SELECT * FROM seller_settings WHERE seller_id = %s", (seller_id,)
+            )
+            row = cur.fetchone()
+        if row is None:
+            defaults = SellerSettings(seller_id=seller_id)
+            with get_cursor(conn) as cur:
+                cur.execute(
+                    """INSERT INTO seller_settings
+                       (seller_id, daily_alert_time, alert_language,
+                        notify_on_price_change, notify_on_stockout_risk,
+                        price_change_threshold, updated_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s)
+                       ON CONFLICT (seller_id) DO UPDATE SET
+                           daily_alert_time=EXCLUDED.daily_alert_time,
+                           alert_language=EXCLUDED.alert_language,
+                           notify_on_price_change=EXCLUDED.notify_on_price_change,
+                           notify_on_stockout_risk=EXCLUDED.notify_on_stockout_risk,
+                           price_change_threshold=EXCLUDED.price_change_threshold,
+                           updated_at=EXCLUDED.updated_at""",
+                    (defaults.seller_id, defaults.daily_alert_time, defaults.alert_language,
+                     defaults.notify_on_price_change, defaults.notify_on_stockout_risk,
+                     defaults.price_change_threshold, datetime.now(timezone.utc))
+                )
+            return defaults
+        return _row_to_settings(row)
+
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute(
@@ -961,8 +1147,28 @@ def _row_to_settings(row: Dict[str, Any]) -> SellerSettings:
 # Query Helper Functions -- Demo State
 # ---------------------------------------------------------------------------
 
-def upsert_demo_state(state: "models.DemoState") -> None:
+def upsert_demo_state(state: DemoState, conn=None) -> None:
     """Insert or update demo state for a seller."""
+    if conn is not None:
+        with get_cursor(conn) as cur:
+            cur.execute(
+                """INSERT INTO demo_state
+                   (seller_id, current_day, max_days, shock_sku_id,
+                    depletion_sku_id, shock_triggered, updated_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s)
+                   ON CONFLICT (seller_id) DO UPDATE SET
+                       current_day=EXCLUDED.current_day,
+                       max_days=EXCLUDED.max_days,
+                       shock_sku_id=EXCLUDED.shock_sku_id,
+                       depletion_sku_id=EXCLUDED.depletion_sku_id,
+                       shock_triggered=EXCLUDED.shock_triggered,
+                       updated_at=EXCLUDED.updated_at""",
+                (state.seller_id, state.current_day, state.max_days,
+                 state.shock_sku_id, state.depletion_sku_id,
+                 state.shock_triggered, datetime.now(timezone.utc))
+            )
+        return
+
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute(
@@ -983,8 +1189,14 @@ def upsert_demo_state(state: "models.DemoState") -> None:
             )
 
 
-def get_demo_state(seller_id: str) -> Optional["models.DemoState"]:
+def get_demo_state(seller_id: str, conn=None) -> Optional[DemoState]:
     """Get demo state for a seller, or None if not started."""
+    if conn is not None:
+        with get_cursor(conn) as cur:
+            cur.execute("SELECT * FROM demo_state WHERE seller_id = %s", (seller_id,))
+            row = cur.fetchone()
+        return _row_to_demo_state(row) if row else None
+
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute("SELECT * FROM demo_state WHERE seller_id = %s", (seller_id,))
@@ -1042,7 +1254,7 @@ def reset_demo_seller_data(seller_id: str) -> None:
     delete_demo_state(seller_id)
 
 
-def _row_to_demo_state(row: Dict[str, Any]) -> "models.DemoState":
+def _row_to_demo_state(row: Dict[str, Any]) -> DemoState:
     from models import DemoState
     return DemoState(
         seller_id=row["seller_id"],
@@ -1062,19 +1274,19 @@ def _row_to_demo_state(row: Dict[str, Any]) -> "models.DemoState":
 # built entirely from the functions in this module. Called by Agent Core.
 # ---------------------------------------------------------------------------
 
-def build_seller_state(seller_id: str, sku_id: str) -> Dict[str, Any]:
+def build_seller_state(seller_id: str, sku_id: str, conn=None) -> Dict[str, Any]:
     """
     Assembles the full seller/SKU state dict from existing query
     functions. This is the data contract handed to the statistical
     tools (forecasting + pricing) in Component A -- everything they
     need must be derivable from this module alone.
     """
-    seller = get_seller_by_id(seller_id)
-    sku = get_sku_by_id(sku_id)
-    order_history = get_order_history(sku_id, days=30)
-    yesterday = get_yesterday_order(sku_id)
-    price_arms = get_price_arms(sku_id, active_only=True)
-    settings = get_seller_settings(seller_id)
+    seller = get_seller_by_id(seller_id, conn=conn)
+    sku = get_sku_by_id(sku_id, conn=conn)
+    order_history = get_order_history(sku_id, days=30, conn=conn)
+    yesterday = get_yesterday_order(sku_id, conn=conn)
+    price_arms = get_price_arms(sku_id, active_only=True, conn=conn)
+    settings = get_seller_settings(seller_id, conn=conn)
 
     seller_state = {
         "seller_id": sku.seller_id if sku else seller_id,

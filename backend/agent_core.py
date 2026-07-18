@@ -24,19 +24,7 @@ try:
 except ImportError:  # pragma: no cover - exercised when SDK is absent in the env
     OpenAI = None  # type: ignore
 
-from database import (
-    build_seller_state,
-    get_conversation_history,
-    get_last_agent_action,
-    get_price_arms,
-    get_seller_by_id,
-    get_seller_settings,
-    get_sku_by_id,
-    insert_agent_action,
-    recompute_price_arms,
-    update_sku_chosen_price,
-    upsert_price_arm,
-)
+import database
 from forecasting_tool import run_forecasting_tool
 from models import AgentAction, PriceArm, Seller, SKU
 from pricing_tool import run_pricing_tool
@@ -71,70 +59,71 @@ def run_agent_cycle(
     if trigger == "user_message" and not message_text:
         raise AgentCoreError("message_text is required when trigger='user_message'")
 
-    seller_state = build_seller_state(seller_id, sku_id)
-    seller = get_seller_by_id(seller_id)
-    sku = get_sku_by_id(sku_id)
+    with database.get_connection() as conn:
+        seller_state = database.build_seller_state(seller_id, sku_id, conn=conn)
+        seller = database.get_seller_by_id(seller_id, conn=conn)
+        sku = database.get_sku_by_id(sku_id, conn=conn)
 
-    if seller is None:
-        raise LookupError(f"Unknown seller_id: {seller_id}")
-    if sku is None:
-        raise LookupError(f"Unknown sku_id: {sku_id}")
+        if seller is None:
+            raise LookupError(f"Unknown seller_id: {seller_id}")
+        if sku is None:
+            raise LookupError(f"Unknown sku_id: {sku_id}")
 
-    last_action = get_last_agent_action(sku_id)
-    conversation_history = get_conversation_history(seller_id, limit=10)
+        last_action = database.get_last_agent_action(sku_id, conn=conn)
+        conversation_history = database.get_conversation_history(seller_id, limit=10, conn=conn)
 
-    recompute_price_arms(sku_id, int(sku.price_floor), int(sku.price_ceiling))
-    seller_state["price_arms"] = [
-        {
-            "price_value": arm.price_value,
-            "alpha": arm.alpha,
-            "beta_param": arm.beta_param,
-            "times_chosen": arm.times_chosen,
-        }
-        for arm in get_price_arms(sku_id, active_only=True)
-    ]
+        database.recompute_price_arms(sku_id, int(sku.price_floor), int(sku.price_ceiling), conn=conn)
+        seller_state["price_arms"] = [
+            {
+                "price_value": arm.price_value,
+                "alpha": arm.alpha,
+                "beta_param": arm.beta_param,
+                "times_chosen": arm.times_chosen,
+            }
+            for arm in database.get_price_arms(sku_id, active_only=True, conn=conn)
+        ]
 
-    run_pricing = False
-    run_forecasting = False
-    if trigger in {"scheduled", "manual"}:
-        run_pricing = True
-        run_forecasting = True
-    else:
-        intent = _classify_message_intent(message_text or "")
-        if intent == "price":
+        run_pricing = False
+        run_forecasting = False
+        if trigger in {"scheduled", "manual"}:
             run_pricing = True
-        elif intent == "stock":
             run_forecasting = True
         else:
-            run_pricing = True
-            run_forecasting = True
+            intent = _classify_message_intent(message_text or "")
+            if intent == "price":
+                run_pricing = True
+            elif intent == "stock":
+                run_forecasting = True
+            else:
+                run_pricing = True
+                run_forecasting = True
 
-    pricing_result: Optional[Dict[str, Any]] = None
-    forecast_result: Optional[Dict[str, Any]] = None
-    if run_pricing:
-        pricing_result = run_pricing_tool(seller_state, rng_seed=None)
-    if run_forecasting:
-        forecast_result = run_forecasting_tool(seller_state, n_simulations=500, rng_seed=None)
+        pricing_result: Optional[Dict[str, Any]] = None
+        forecast_result: Optional[Dict[str, Any]] = None
+        if run_pricing:
+            pricing_result = run_pricing_tool(seller_state, rng_seed=None)
+        if run_forecasting:
+            forecast_result = run_forecasting_tool(seller_state, n_simulations=500, rng_seed=None)
 
-    if pricing_result is not None:
-        current_arms = get_price_arms(sku_id, active_only=False)
-        arm_lookup = {arm.price_value: arm for arm in current_arms}
-        for arm_payload in pricing_result.get("updated_arms", []):
-            price_value = int(arm_payload["price_value"])
-            existing_arm = arm_lookup.get(price_value)
-            arm_id = existing_arm.arm_id if existing_arm is not None else str(uuid.uuid4())
-            price_arm = PriceArm(
-                arm_id=arm_id,
-                sku_id=sku_id,
-                price_value=price_value,
-                alpha=float(arm_payload["alpha"]),
-                beta_param=float(arm_payload["beta_param"]),
-                times_chosen=int(arm_payload["times_chosen"]),
-                is_active=True,
-            )
-            upsert_price_arm(price_arm)
-            arm_lookup[price_value] = price_arm
-        update_sku_chosen_price(sku_id, int(pricing_result["chosen_price"]))
+        if pricing_result is not None:
+            current_arms = database.get_price_arms(sku_id, active_only=False, conn=conn)
+            arm_lookup = {arm.price_value: arm for arm in current_arms}
+            for arm_payload in pricing_result.get("updated_arms", []):
+                price_value = int(arm_payload["price_value"])
+                existing_arm = arm_lookup.get(price_value)
+                arm_id = existing_arm.arm_id if existing_arm is not None else str(uuid.uuid4())
+                price_arm = PriceArm(
+                    arm_id=arm_id,
+                    sku_id=sku_id,
+                    price_value=price_value,
+                    alpha=float(arm_payload["alpha"]),
+                    beta_param=float(arm_payload["beta_param"]),
+                    times_chosen=int(arm_payload["times_chosen"]),
+                    is_active=True,
+                )
+                database.upsert_price_arm(price_arm, conn=conn)
+                arm_lookup[price_value] = price_arm
+            database.update_sku_chosen_price(sku_id, int(pricing_result["chosen_price"]), conn=conn)
 
     system_prompt = _build_system_prompt(seller=seller, sku=sku)
     user_prompt = _build_user_prompt(
@@ -188,7 +177,7 @@ def run_agent_cycle(
     # store the message for the dashboard, and always log the action.
     notification_suppressed = False
     if trigger == "scheduled" and chosen_price is not None:
-        seller_settings = get_seller_settings(seller_id)
+        seller_settings = database.get_seller_settings(seller_id)
         if last_action is not None and last_action.chosen_price is not None:
             old_price = last_action.chosen_price
             if old_price > 0:
@@ -212,7 +201,8 @@ def run_agent_cycle(
         reasoning_trace=parsed["reasoning_trace"],
         delivered_via=None,
     )
-    insert_agent_action(action)
+    with database.get_connection() as conn:
+        database.insert_agent_action(action, conn=conn)
 
     return {
         "seller_message": parsed["seller_message"],

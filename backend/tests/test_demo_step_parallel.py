@@ -18,7 +18,7 @@ def test_demo_step_runs_both_arcs_and_preserves_order(monkeypatch):
     monkeypatch.setattr(
         demo.database,
         "get_demo_state",
-        lambda seller_id: demo.DemoState(
+        lambda seller_id, conn=None: demo.DemoState(
             seller_id="demo_seller",
             current_day=0,
             max_days=6,
@@ -30,13 +30,13 @@ def test_demo_step_runs_both_arcs_and_preserves_order(monkeypatch):
     monkeypatch.setattr(
         demo.database,
         "get_sku_by_id",
-        lambda sku_id: SimpleNamespace(current_stock=10, current_chosen_price=100, price_floor=80, unit_cost=60),
+        lambda sku_id, conn=None: SimpleNamespace(current_stock=10, current_chosen_price=100, price_floor=80, unit_cost=60),
     )
-    monkeypatch.setattr(demo.database, "update_sku_stock", lambda sku_id, new_stock: None)
-    monkeypatch.setattr(demo.database, "get_order_history", lambda sku_id, days=30: [])
-    monkeypatch.setattr(demo.database, "insert_order", lambda order: None)
-    monkeypatch.setattr(demo.database, "upsert_demo_state", lambda state: None)
-    monkeypatch.setattr(demo, "_get_sku_snapshot", lambda sku_id: {"sku_id": sku_id})
+    monkeypatch.setattr(demo.database, "update_sku_stock", lambda sku_id, new_stock, conn=None: None)
+    monkeypatch.setattr(demo.database, "get_order_history", lambda sku_id, days=30, conn=None: [])
+    monkeypatch.setattr(demo.database, "insert_order", lambda order, conn=None: None)
+    monkeypatch.setattr(demo.database, "upsert_demo_state", lambda state, conn=None: None)
+    monkeypatch.setattr(demo, "_get_sku_snapshot", lambda sku_id, conn=None: {"sku_id": sku_id})
 
     def fake_run_agent_cycle(seller_id, sku_id, trigger):
         return {
