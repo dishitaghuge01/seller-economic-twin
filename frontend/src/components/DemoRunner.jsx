@@ -141,7 +141,7 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
           onNotificationSent?.();
         }
 
-        await onStepCompleted?.();
+        void onStepCompleted?.();
 
         currentValue = Number(stepResponse?.day || nextDay);
         if (currentValue >= activeMaxDays) {
@@ -155,7 +155,7 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
           break;
         }
 
-        await delay(3500);
+        await delay(1200);
       }
     } catch (err) {
       setError(err.message || "Demo failed.");

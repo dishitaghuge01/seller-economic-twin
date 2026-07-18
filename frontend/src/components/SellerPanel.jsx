@@ -27,8 +27,8 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
   const [newPriceCeiling, setNewPriceCeiling] = useState(140);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
 
-  const loadSeller = useCallback(async () => {
-    setLoading(true);
+  const loadSeller = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     setErr(null);
     try {
       const d = await apiClient.getSeller(sellerId);
@@ -50,9 +50,9 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
     loadSeller();
   }, [loadSeller]);
 
-  const refreshHistory = useCallback(async () => {
+  const refreshHistory = useCallback(async ({ silent = false } = {}) => {
     if (!selectedSkuId) return;
-    setHistoryLoading(true);
+    if (!silent) setHistoryLoading(true);
     setErr(null);
     try {
       const nextHistory = await apiClient.getSkuHistory(sellerId, selectedSkuId);
@@ -135,12 +135,12 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
   };
 
   const handleDemoStepCompleted = useCallback(async () => {
-    await loadSeller();
-    await refreshHistory();
+    void loadSeller({ silent: true });
+    void refreshHistory({ silent: true });
     setHistoryRefreshKey((value) => value + 1);
   }, [loadSeller, refreshHistory]);
 
-  if (loading) {
+  if (loading && !seller) {
     return (
       <div className="space-y-3">
         <div className="h-6 w-48 bg-gray-200 rounded animate-pulse" />
@@ -249,7 +249,7 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
             </div>
           </div>
 
-          {historyLoading || !history ? (
+          {!history ? (
             <div className="h-64 bg-gray-100 rounded-xl animate-pulse" />
           ) : (
             <div className="space-y-4">

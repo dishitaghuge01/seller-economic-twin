@@ -364,15 +364,30 @@ def _classify_message_intent(message_text: str) -> str:
 
 def _build_system_prompt(seller: Seller, sku: SKU) -> str:
     language = "Hindi" if seller.language_preference == "hi" else "English"
+    if seller.language_preference == "hi":
+        language_rule = (
+            "You MUST write the SELLER_MESSAGE entirely in Hindi using Devanagari script "
+            "(not transliterated/Hinglish, not English). This is a hard requirement — "
+            "do not default to English under any circumstances."
+        )
+    else:
+        language_rule = (
+            "You MUST write the SELLER_MESSAGE in simple English — short sentences, "
+            "no jargon, as if texting a shopkeeper on WhatsApp."
+        )
+
     return (
         f"You are a pricing and inventory advisor for a small Indian e-commerce "
         f"seller. Always cite specific numbers behind any recommendation — "
         f"never say 'the price seems good' without the number and why. "
-        f"Communicate in simple {language} — short sentences, no jargon, as if "
-        f"texting a shopkeeper on WhatsApp. Never suggest a price outside "
-        f"{sku.price_floor}-{sku.price_ceiling}. You MUST respond in exactly "
-        f"this format, with these exact section headers on their own line and "
-        f"nothing else on those lines:\n\n"
+        f"{language_rule} "
+        f"Always begin the SELLER_MESSAGE by naming the product using {sku.sku_name} "
+        f"(for example: '{sku.sku_name}: ...' or '{sku.sku_name} ka stock...'), so the "
+        f"seller immediately knows which product this is about. This matters because "
+        f"a seller may have multiple products and the message must never be ambiguous. "
+        f"Never suggest a price outside {sku.price_floor}-{sku.price_ceiling}. "
+        f"You MUST respond in exactly this format, with these exact section headers "
+        f"on their own line and nothing else on those lines:\n\n"
         f"SELLER_MESSAGE:\n"
         f"<the message to send to the seller, 2-4 sentences, WhatsApp-appropriate>\n\n"
         f"REASONING_TRACE:\n"

@@ -11,6 +11,7 @@ Provides endpoints to run a 6-day simulation of price/stock dynamics:
 All endpoints require DEMO_SELLER_ID env var match + DEMO_LOGIN_ENABLED=true.
 """
 
+import asyncio
 import inspect
 import logging
 import os
@@ -119,6 +120,45 @@ def _get_sku_snapshot(sku_id: str) -> Dict[str, Any]:
         "reorder_point": sku.reorder_point,
         "stockout_severity": severity,
     }
+
+
+def _run_arc(sku_id: str, arc_label: str, seller_id: str) -> tuple[Optional[DemoStepMessage], Optional[DemoStepNotification]]:
+    """Run a scheduled agent cycle for one SKU and send a notification unless suppressed."""
+    try:
+        result = run_agent_cycle(seller_id, sku_id, trigger="scheduled")
+    except AgentCoreError as exc:
+        logger.error(f"Agent cycle failed for {arc_label} arc: {exc}")
+        return None, None
+
+    message = DemoStepMessage(
+        sku_id=sku_id,
+        seller_message=result.get("seller_message", ""),
+        reasoning_trace=result.get("reasoning_trace", ""),
+    )
+
+    if result.get("notification_suppressed"):
+        return message, DemoStepNotification(
+            sku_id=sku_id,
+            sent=False,
+            reason="price change below threshold",
+        )
+
+    try:
+        send_result = send_whatsapp_message(seller_id, result["seller_message"])
+        notification = DemoStepNotification(
+            sku_id=sku_id,
+            sent=send_result.get("status") == "sent",
+            reason=f"{arc_label} arc",
+        )
+    except Exception as exc:
+        logger.warning(f"WhatsApp send failed for {arc_label} arc: {exc}")
+        notification = DemoStepNotification(
+            sku_id=sku_id,
+            sent=False,
+            reason=f"send error: {str(exc)[:50]}",
+        )
+
+    return message, notification
 
 
 def _assign_arcs(seller_id: str) -> tuple[str, str]:
@@ -253,40 +293,6 @@ async def demo_step(
             # Decrement by 2 units/day, floor at 0
             new_stock = max(0, depletion_sku.current_stock - 2)
             database.update_sku_stock(demo_state.depletion_sku_id, new_stock)
-            
-            # Run agent cycle for depletion SKU
-            try:
-                result = run_agent_cycle(seller_id, demo_state.depletion_sku_id, trigger="scheduled")
-                agent_messages.append(DemoStepMessage(
-                    sku_id=demo_state.depletion_sku_id,
-                    seller_message=result.get("seller_message", ""),
-                    reasoning_trace=result.get("reasoning_trace", ""),
-                ))
-                
-                # Send notification unless suppressed
-                if not result.get("notification_suppressed"):
-                    try:
-                        send_result = send_whatsapp_message(seller_id, result["seller_message"])
-                        notifications.append(DemoStepNotification(
-                            sku_id=demo_state.depletion_sku_id,
-                            sent=send_result.get("status") == "sent",
-                            reason="depletion arc",
-                        ))
-                    except Exception as exc:
-                        logger.warning(f"WhatsApp send failed for depletion arc: {exc}")
-                        notifications.append(DemoStepNotification(
-                            sku_id=demo_state.depletion_sku_id,
-                            sent=False,
-                            reason=f"send error: {str(exc)[:50]}",
-                        ))
-                else:
-                    notifications.append(DemoStepNotification(
-                        sku_id=demo_state.depletion_sku_id,
-                        sent=False,
-                        reason="price change below threshold",
-                    ))
-            except AgentCoreError as exc:
-                logger.error(f"Agent cycle failed for depletion arc: {exc}")
         
         # --- SHOCK ARC: inject synthetic order on shock_day ---
         shock_day = 2  # Day 2 of 6
@@ -320,39 +326,16 @@ async def demo_step(
                 shock_event_triggered_today = True
                 logger.info(f"Demo shock triggered on {demo_state.shock_sku_id}: {shocked_units} units (avg was ~{avg_units:.1f})")
         
-        # Always run agent cycle for shock SKU (normal scheduled cycle)
-        try:
-            result = run_agent_cycle(seller_id, demo_state.shock_sku_id, trigger="scheduled")
-            agent_messages.append(DemoStepMessage(
-                sku_id=demo_state.shock_sku_id,
-                seller_message=result.get("seller_message", ""),
-                reasoning_trace=result.get("reasoning_trace", ""),
-            ))
-            
-            # Send notification unless suppressed
-            if not result.get("notification_suppressed"):
-                try:
-                    send_result = send_whatsapp_message(seller_id, result["seller_message"])
-                    notifications.append(DemoStepNotification(
-                        sku_id=demo_state.shock_sku_id,
-                        sent=send_result.get("status") == "sent",
-                        reason="shock arc",
-                    ))
-                except Exception as exc:
-                    logger.warning(f"WhatsApp send failed for shock arc: {exc}")
-                    notifications.append(DemoStepNotification(
-                        sku_id=demo_state.shock_sku_id,
-                        sent=False,
-                        reason=f"send error: {str(exc)[:50]}",
-                    ))
-            else:
-                notifications.append(DemoStepNotification(
-                    sku_id=demo_state.shock_sku_id,
-                    sent=False,
-                    reason="price change below threshold",
-                ))
-        except AgentCoreError as exc:
-            logger.error(f"Agent cycle failed for shock arc: {exc}")
+        depletion_result, shock_result = await asyncio.gather(
+            asyncio.to_thread(_run_arc, demo_state.depletion_sku_id, "depletion", seller_id),
+            asyncio.to_thread(_run_arc, demo_state.shock_sku_id, "shock", seller_id),
+        )
+
+        for message, notification in (depletion_result, shock_result):
+            if message is not None:
+                agent_messages.append(message)
+            if notification is not None:
+                notifications.append(notification)
         
         # Persist incremented demo state
         database.upsert_demo_state(demo_state)
