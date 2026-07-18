@@ -31,6 +31,14 @@ from whatsapp import send_whatsapp_message
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+_demo_locks: Dict[str, asyncio.Lock] = {}
+
+
+def _get_demo_lock(seller_id: str) -> asyncio.Lock:
+    if seller_id not in _demo_locks:
+        _demo_locks[seller_id] = asyncio.Lock()
+    return _demo_locks[seller_id]
+
 
 async def _authorize_demo_request(
     seller_id: str,
@@ -220,35 +228,40 @@ async def demo_start(
     """Start a new demo simulation (always resets first)."""
     _check_demo_access(seller_id)
     
+    lock = _get_demo_lock(seller_id)
+    if lock.locked():
+        raise HTTPException(status_code=409, detail="A demo start is already in progress for this seller.")
+    
     try:
-        # Always start fresh: reset first
-        database.reset_demo_seller_data(seller_id)
-        
-        # Assign arcs based on current reorder-point proximity
-        shock_sku_id, depletion_sku_id = _assign_arcs(seller_id)
-        
-        # Create demo state at day 0
-        demo_state = DemoState(
-            seller_id=seller_id,
-            current_day=0,
-            max_days=6,
-            shock_sku_id=shock_sku_id,
-            depletion_sku_id=depletion_sku_id,
-            shock_triggered=False,
-        )
-        database.upsert_demo_state(demo_state)
-        
-        # Get snapshots for response
-        depletion_snapshot = _get_sku_snapshot(depletion_sku_id)
-        shock_snapshot = _get_sku_snapshot(shock_sku_id)
-        
-        return DemoStartResponse(
-            status="started",
-            current_day=0,
-            max_days=6,
-            depletion_sku=depletion_snapshot,
-            shock_sku=shock_snapshot,
-        )
+        async with lock:
+            # Always start fresh: reset first
+            database.reset_demo_seller_data(seller_id)
+            
+            # Assign arcs based on current reorder-point proximity
+            shock_sku_id, depletion_sku_id = _assign_arcs(seller_id)
+            
+            # Create demo state at day 0
+            demo_state = DemoState(
+                seller_id=seller_id,
+                current_day=0,
+                max_days=6,
+                shock_sku_id=shock_sku_id,
+                depletion_sku_id=depletion_sku_id,
+                shock_triggered=False,
+            )
+            database.upsert_demo_state(demo_state)
+            
+            # Get snapshots for response
+            depletion_snapshot = _get_sku_snapshot(depletion_sku_id)
+            shock_snapshot = _get_sku_snapshot(shock_sku_id)
+            
+            return DemoStartResponse(
+                status="started",
+                current_day=0,
+                max_days=6,
+                depletion_sku=depletion_snapshot,
+                shock_sku=shock_snapshot,
+            )
     
     except Exception as exc:
         logger.error(f"Demo start failed for {seller_id}: {exc}")
@@ -263,92 +276,97 @@ async def demo_step(
     """Advance demo simulation by one day."""
     _check_demo_access(seller_id)
     
+    lock = _get_demo_lock(seller_id)
+    if lock.locked():
+        raise HTTPException(status_code=409, detail="A demo step is already in progress for this seller.")
+    
     try:
-        demo_state = database.get_demo_state(seller_id)
-        if demo_state is None:
-            raise HTTPException(status_code=400, detail="Demo not started. Call /demo/start first.")
-        
-        # Check if simulation is complete
-        if demo_state.current_day >= demo_state.max_days:
+        async with lock:
+            demo_state = database.get_demo_state(seller_id)
+            if demo_state is None:
+                raise HTTPException(status_code=400, detail="Demo not started. Call /demo/start first.")
+            
+            # Check if simulation is complete
+            if demo_state.current_day >= demo_state.max_days:
+                return DemoStepResponse(
+                    day=demo_state.current_day,
+                    max_days=demo_state.max_days,
+                    depletion_sku=_get_sku_snapshot(demo_state.depletion_sku_id),
+                    shock_sku=_get_sku_snapshot(demo_state.shock_sku_id),
+                    shock_event_triggered_today=False,
+                    notifications=[],
+                    agent_messages=[],
+                )
+            
+            # Increment day
+            demo_state.current_day += 1
+            
+            notifications: List[DemoStepNotification] = []
+            agent_messages: List[DemoStepMessage] = []
+            shock_event_triggered_today = False
+            
+            # --- DEPLETION ARC: decrement stock each step ---
+            depletion_sku = database.get_sku_by_id(demo_state.depletion_sku_id)
+            if depletion_sku:
+                # Decrement by 2 units/day, floor at 0
+                new_stock = max(0, depletion_sku.current_stock - 2)
+                database.update_sku_stock(demo_state.depletion_sku_id, new_stock)
+            
+            # --- SHOCK ARC: inject synthetic order on shock_day ---
+            shock_day = 2  # Day 2 of 6
+            if demo_state.current_day == shock_day and not demo_state.shock_triggered:
+                shock_sku = database.get_sku_by_id(demo_state.shock_sku_id)
+                if shock_sku:
+                    # Compute average units_sold from recent order history
+                    orders = database.get_order_history(demo_state.shock_sku_id, days=30)
+                    if orders:
+                        avg_units = sum(o.units_sold for o in orders) / len(orders)
+                        # Shock: 20-30% drop (use 25% as midpoint)
+                        shocked_units = max(1, int(avg_units * 0.75))
+                    else:
+                        shocked_units = 1  # Fallback
+                    
+                    # Insert synthetic order at today's price
+                    from models import Order
+                    import uuid
+                    shock_order = Order(
+                        order_id=str(uuid.uuid4()),
+                        sku_id=demo_state.shock_sku_id,
+                        seller_id=seller_id,
+                        order_date=date.today(),
+                        units_sold=shocked_units,
+                        price_charged=shock_sku.current_chosen_price or shock_sku.price_floor,
+                        revenue=shocked_units * (shock_sku.current_chosen_price or shock_sku.price_floor),
+                        margin=shocked_units * ((shock_sku.current_chosen_price or shock_sku.price_floor) - shock_sku.unit_cost),
+                    )
+                    database.insert_order(shock_order)
+                    demo_state.shock_triggered = True
+                    shock_event_triggered_today = True
+                    logger.info(f"Demo shock triggered on {demo_state.shock_sku_id}: {shocked_units} units (avg was ~{avg_units:.1f})")
+            
+            depletion_result, shock_result = await asyncio.gather(
+                asyncio.to_thread(_run_arc, demo_state.depletion_sku_id, "depletion", seller_id),
+                asyncio.to_thread(_run_arc, demo_state.shock_sku_id, "shock", seller_id),
+            )
+
+            for message, notification in (depletion_result, shock_result):
+                if message is not None:
+                    agent_messages.append(message)
+                if notification is not None:
+                    notifications.append(notification)
+            
+            # Persist incremented demo state
+            database.upsert_demo_state(demo_state)
+            
             return DemoStepResponse(
                 day=demo_state.current_day,
                 max_days=demo_state.max_days,
                 depletion_sku=_get_sku_snapshot(demo_state.depletion_sku_id),
                 shock_sku=_get_sku_snapshot(demo_state.shock_sku_id),
-                shock_event_triggered_today=False,
-                notifications=[],
-                agent_messages=[],
+                shock_event_triggered_today=shock_event_triggered_today,
+                notifications=notifications,
+                agent_messages=agent_messages,
             )
-        
-        # Increment day
-        demo_state.current_day += 1
-        
-        notifications: List[DemoStepNotification] = []
-        agent_messages: List[DemoStepMessage] = []
-        shock_event_triggered_today = False
-        
-        # --- DEPLETION ARC: decrement stock each step ---
-        depletion_sku = database.get_sku_by_id(demo_state.depletion_sku_id)
-        if depletion_sku:
-            # Decrement by 2 units/day, floor at 0
-            new_stock = max(0, depletion_sku.current_stock - 2)
-            database.update_sku_stock(demo_state.depletion_sku_id, new_stock)
-        
-        # --- SHOCK ARC: inject synthetic order on shock_day ---
-        shock_day = 2  # Day 2 of 6
-        if demo_state.current_day == shock_day and not demo_state.shock_triggered:
-            shock_sku = database.get_sku_by_id(demo_state.shock_sku_id)
-            if shock_sku:
-                # Compute average units_sold from recent order history
-                orders = database.get_order_history(demo_state.shock_sku_id, days=30)
-                if orders:
-                    avg_units = sum(o.units_sold for o in orders) / len(orders)
-                    # Shock: 20-30% drop (use 25% as midpoint)
-                    shocked_units = max(1, int(avg_units * 0.75))
-                else:
-                    shocked_units = 1  # Fallback
-                
-                # Insert synthetic order at today's price
-                from models import Order
-                import uuid
-                shock_order = Order(
-                    order_id=str(uuid.uuid4()),
-                    sku_id=demo_state.shock_sku_id,
-                    seller_id=seller_id,
-                    order_date=date.today(),
-                    units_sold=shocked_units,
-                    price_charged=shock_sku.current_chosen_price or shock_sku.price_floor,
-                    revenue=shocked_units * (shock_sku.current_chosen_price or shock_sku.price_floor),
-                    margin=shocked_units * ((shock_sku.current_chosen_price or shock_sku.price_floor) - shock_sku.unit_cost),
-                )
-                database.insert_order(shock_order)
-                demo_state.shock_triggered = True
-                shock_event_triggered_today = True
-                logger.info(f"Demo shock triggered on {demo_state.shock_sku_id}: {shocked_units} units (avg was ~{avg_units:.1f})")
-        
-        depletion_result, shock_result = await asyncio.gather(
-            asyncio.to_thread(_run_arc, demo_state.depletion_sku_id, "depletion", seller_id),
-            asyncio.to_thread(_run_arc, demo_state.shock_sku_id, "shock", seller_id),
-        )
-
-        for message, notification in (depletion_result, shock_result):
-            if message is not None:
-                agent_messages.append(message)
-            if notification is not None:
-                notifications.append(notification)
-        
-        # Persist incremented demo state
-        database.upsert_demo_state(demo_state)
-        
-        return DemoStepResponse(
-            day=demo_state.current_day,
-            max_days=demo_state.max_days,
-            depletion_sku=_get_sku_snapshot(demo_state.depletion_sku_id),
-            shock_sku=_get_sku_snapshot(demo_state.shock_sku_id),
-            shock_event_triggered_today=shock_event_triggered_today,
-            notifications=notifications,
-            agent_messages=agent_messages,
-        )
     
     except HTTPException:
         raise

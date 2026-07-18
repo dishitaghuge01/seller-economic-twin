@@ -46,6 +46,7 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [isComplete, setIsComplete] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const stopRequestedRef = useRef(false);
   const isMountedRef = useRef(true);
 
@@ -80,9 +81,10 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
           if (nextDay >= limit) {
             setStatus("Demo complete");
             setIsComplete(true);
+            setIsPaused(false);
           } else {
-            setStatus(`Resuming from day ${nextDay + 1}`);
-            void runDemo(nextDay);
+            setStatus(`Demo paused at day ${nextDay} of ${limit}`);
+            setIsPaused(true);
           }
         }
       } catch (err) {
@@ -120,6 +122,7 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
   const runDemo = async (resumeFromDay = 0) => {
     if (!sellerId) return;
     stopRequestedRef.current = false;
+    setIsPaused(false);
     setIsRunning(true);
     setIsConfirming(false);
     setError("");
@@ -199,12 +202,23 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {!isRunning && !isComplete && !isConfirming && (
-            <button
-              onClick={() => setIsConfirming(true)}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-            >
-              Run Demo
-            </button>
+            <>
+              {isPaused ? (
+                <button
+                  onClick={() => runDemo(currentDay)}
+                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                >
+                  Resume Demo
+                </button>
+              ) : (
+                <button
+                  onClick={() => setIsConfirming(true)}
+                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                >
+                  Run Demo
+                </button>
+              )}
+            </>
           )}
           {isRunning && (
             <button
