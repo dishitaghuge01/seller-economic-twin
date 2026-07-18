@@ -59,4 +59,42 @@ describe("ForecastFanChart", () => {
     await waitFor(() => expect(screen.queryByText(/Restock recommended/i)).not.toBeInTheDocument());
     spy.mockRestore();
   });
+
+  test("ignores stale forecast responses after a newer request starts", async () => {
+    let resolveFirst;
+    const firstRequest = new Promise((resolve) => {
+      resolveFirst = resolve;
+    });
+
+    const spy = vi
+      .spyOn(apiClient, "getForecast")
+      .mockImplementationOnce(() => firstRequest)
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          severity: "safe",
+          fan_chart: [{ day: 1, p_stockout: 0.1 }],
+          median_stockout_day: 10,
+          stockout_ci_low: 8,
+          stockout_ci_high: 12,
+          lambda_estimated: 2,
+        }),
+      );
+
+    const { rerender } = render(<ForecastFanChart skuId="sku-1" sellerId="riya_sharma" refreshKey={0} />);
+
+    rerender(<ForecastFanChart skuId="sku-2" sellerId="riya_sharma" refreshKey={1} />);
+
+    resolveFirst({
+      severity: "watch",
+      fan_chart: [{ day: 1, p_stockout: 0.4 }],
+      median_stockout_day: 2,
+      stockout_ci_low: 1,
+      stockout_ci_high: 3,
+      lambda_estimated: 1,
+    });
+
+    await waitFor(() => expect(screen.getByText("Day 10")).toBeInTheDocument());
+    expect(screen.queryByText("Day 2")).not.toBeInTheDocument();
+    spy.mockRestore();
+  });
 });

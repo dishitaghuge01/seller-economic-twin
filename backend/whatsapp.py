@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 import uuid
 from typing import Any, Dict, Optional
 
@@ -7,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from twilio import request_validator
 from twilio.base.exceptions import TwilioRestException
+from twilio.http.http_client import TwilioHttpClient
 from twilio.rest import Client
 from twilio.twiml.messaging_response import MessagingResponse
 
@@ -136,8 +138,10 @@ def send_whatsapp_message(seller_id: str, message_body: str) -> dict:
     if seller is None:
         return {"status": "error", "reason": "seller_not_found"}
 
-    client = Client(_get_twilio_account_sid(), _get_twilio_auth_token())
+    http_client = TwilioHttpClient(timeout=10)
+    client = Client(_get_twilio_account_sid(), _get_twilio_auth_token(), http_client=http_client)
 
+    start_time = time.perf_counter()
     try:
         message = client.messages.create(
             from_=_get_twilio_whatsapp_number(),
@@ -145,6 +149,8 @@ def send_whatsapp_message(seller_id: str, message_body: str) -> dict:
             body=message_body,
         )
     except Exception as exc:
+        elapsed = time.perf_counter() - start_time
+        logger.info(f"twilio send took {elapsed:.2f}s")
         error_code = getattr(exc, "code", None)
         error_text = str(exc)
         if error_code == 63016 or "63016" in error_text:
@@ -156,6 +162,9 @@ def send_whatsapp_message(seller_id: str, message_body: str) -> dict:
             return {"status": "skipped", "reason": "outside 24h window"}
         logger.error("Twilio send failed for seller %s: %s", seller.seller_id, exc)
         return {"status": "error", "detail": str(exc)}
+
+    elapsed = time.perf_counter() - start_time
+    logger.info(f"twilio send took {elapsed:.2f}s")
 
     database.insert_conversation_message(
         Conversation(

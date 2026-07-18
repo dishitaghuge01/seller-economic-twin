@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   AreaChart,
   Area,
@@ -16,26 +16,55 @@ const severityColors = {
   safe: "#16a34a",
 };
 
+const loadingMessages = [
+  "Running Thompson Sampling...",
+  "Simulating demand paths...",
+  "Estimating stockout probability...",
+  "Building the forecast fan...",
+];
+
 export default function ForecastFanChart({ skuId, sellerId, refreshKey }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [messageIndex, setMessageIndex] = useState(0);
+  const requestIdRef = useRef(0);
 
   const load = useCallback(() => {
     setLoading(true);
+    const thisRequestId = ++requestIdRef.current;
     apiClient
       .getForecast(sellerId, skuId)
-      .then((d) => setData(d))
-      .finally(() => setLoading(false));
+      .then((d) => {
+        if (thisRequestId === requestIdRef.current) {
+          setData(d);
+        }
+      })
+      .finally(() => {
+        if (thisRequestId === requestIdRef.current) {
+          setLoading(false);
+        }
+      });
   }, [sellerId, skuId]);
 
   useEffect(() => {
     load();
   }, [load, refreshKey]);
 
+  useEffect(() => {
+    if (!loading) return;
+
+    const interval = window.setInterval(() => {
+      setMessageIndex((value) => (value + 1) % loadingMessages.length);
+    }, 900);
+
+    return () => window.clearInterval(interval);
+  }, [loading]);
+
   if (loading) {
     return (
-      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 h-80 flex items-center justify-center">
+      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 h-80 flex flex-col items-center justify-center">
         <div className="animate-spin h-8 w-8 border-2 border-gray-300 border-t-gray-800 rounded-full" />
+        <p className="mt-3 text-xs text-gray-500">{loadingMessages[messageIndex]}</p>
       </div>
     );
   }

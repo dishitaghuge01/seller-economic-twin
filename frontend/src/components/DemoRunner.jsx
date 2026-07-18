@@ -36,7 +36,7 @@ function buildLogLine(stepResponse) {
   return `Day ${stepResponse.day}: ${targetName} price held — no notification needed`;
 }
 
-export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, onNotificationSent }) {
+export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, onNotificationSent, onReset }) {
   const [isConfirming, setIsConfirming] = useState(false);
   const [logs, setLogs] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -98,6 +98,7 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
     setError("");
     try {
       await apiClient.resetDemo(sellerId);
+      await onReset?.();
     } catch (err) {
       setError(err.message || "Unable to reset demo.");
     }
@@ -118,6 +119,7 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
       let activeMaxDays = maxDays;
 
       if (resumeFromDay <= 0) {
+        await apiClient.resetDemo(sellerId);
         const startResponse = await apiClient.startDemo(sellerId);
         activeMaxDays = Number(startResponse?.max_days || 6);
         setMaxDays(activeMaxDays);

@@ -26,6 +26,7 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
   const [newPriceFloor, setNewPriceFloor] = useState(100);
   const [newPriceCeiling, setNewPriceCeiling] = useState(140);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  const [activeSkuId, setActiveSkuId] = useState(null);
   const chartSectionRef = useRef(null);
 
   const loadSeller = useCallback(async ({ silent = false } = {}) => {
@@ -35,8 +36,9 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
       const d = await apiClient.getSeller(sellerId);
       setSeller(d);
       setSelectedSkuId((prev) => {
-        if (prev && d.skus?.some((s) => s.sku_id === prev)) return prev;
-        return d.skus?.[0]?.sku_id ?? null;
+        const nextSkuId = prev && d.skus?.some((s) => s.sku_id === prev) ? prev : d.skus?.[0]?.sku_id ?? null;
+        setActiveSkuId(nextSkuId);
+        return nextSkuId;
       });
       return d;
     } catch (e) {
@@ -51,12 +53,13 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
     loadSeller();
   }, [loadSeller]);
 
-  const refreshHistory = useCallback(async ({ silent = false } = {}) => {
-    if (!selectedSkuId) return;
+  const refreshHistory = useCallback(async ({ silent = false, skuId } = {}) => {
+    const targetSkuId = skuId || selectedSkuId;
+    if (!targetSkuId) return;
     if (!silent) setHistoryLoading(true);
     setErr(null);
     try {
-      const nextHistory = await apiClient.getSkuHistory(sellerId, selectedSkuId);
+      const nextHistory = await apiClient.getSkuHistory(sellerId, targetSkuId);
       setHistory(nextHistory);
       return nextHistory;
     } catch (e) {
@@ -99,8 +102,9 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
       setNewReorderPoint(0);
       setNewPriceFloor(100);
       setNewPriceCeiling(140);
-      loadSeller();
+      setActiveSkuId(newSku.sku_id);
       setSelectedSkuId(newSku.sku_id);
+      void loadSeller({ silent: true });
     } catch (e) {
       setAddSkuError(e.message || "Unable to create product.");
     } finally {
@@ -135,6 +139,12 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
     );
   };
 
+  const handleDemoReset = useCallback(async () => {
+    await loadSeller();
+    await refreshHistory({ silent: true, skuId: activeSkuId || selectedSkuId });
+    setHistoryRefreshKey((value) => value + 1);
+  }, [activeSkuId, loadSeller, refreshHistory, selectedSkuId]);
+
   const handleDemoStepCompleted = useCallback(async (stepResponse) => {
     const candidateSkus = [stepResponse?.shock_sku, stepResponse?.depletion_sku].filter(Boolean);
     const notifications = Array.isArray(stepResponse?.notifications) ? stepResponse.notifications : [];
@@ -150,11 +160,15 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
         : null) ||
       candidateSkus.find((sku) => sku?.stockout_severity === "urgent") ||
       candidateSkus.find((sku) => sku?.stockout_severity === "watch");
+    const targetSkuId = matchedSku?.sku_id || selectedSkuId;
 
-    if (matchedSku?.sku_id && matchedSku.sku_id !== selectedSkuId) {
-      setSelectedSkuId(matchedSku.sku_id);
-      await new Promise((resolve) => setTimeout(resolve, 150));
-      chartSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (targetSkuId) {
+      setActiveSkuId(targetSkuId);
+      if (targetSkuId !== selectedSkuId) {
+        setSelectedSkuId(targetSkuId);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        chartSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
     }
 
     if (sentMessage?.seller_message && typeof onDemoNotification === "function") {
@@ -162,9 +176,36 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
     }
 
     void loadSeller({ silent: true });
-    void refreshHistory({ silent: true });
+    void refreshHistory({ silent: true, skuId: targetSkuId });
     setHistoryRefreshKey((value) => value + 1);
   }, [loadSeller, refreshHistory, selectedSkuId, onDemoNotification]);
+
+  const onStepCompletedRef = useRef(handleDemoStepCompleted);
+  useEffect(() => {
+    onStepCompletedRef.current = handleDemoStepCompleted;
+  }, [handleDemoStepCompleted]);
+
+  const handleStepCompletedStable = useCallback((stepResponse) => {
+    onStepCompletedRef.current(stepResponse);
+  }, []);
+
+  const onResetRef = useRef(handleDemoReset);
+  useEffect(() => {
+    onResetRef.current = handleDemoReset;
+  }, [handleDemoReset]);
+
+  const handleResetStable = useCallback(() => {
+    onResetRef.current?.();
+  }, []);
+
+  const onDemoNotificationRef = useRef(onDemoNotification);
+  useEffect(() => {
+    onDemoNotificationRef.current = onDemoNotification;
+  }, [onDemoNotification]);
+
+  const handleNotificationStable = useCallback((message) => {
+    onDemoNotificationRef.current?.(message);
+  }, []);
 
   if (loading && !seller) {
     return (
@@ -187,7 +228,7 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
   }
   if (!seller) return null;
 
-  const selectedSku = seller.skus.find((s) => s.sku_id === selectedSkuId);
+  const selectedSku = seller.skus.find((s) => s.sku_id === (activeSkuId ?? selectedSkuId));
 
   return (
     <div className="space-y-4">
@@ -223,8 +264,9 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
         <DemoRunner
           sellerId={sellerId}
           isDemoSeller={isDemoSeller}
-          onStepCompleted={handleDemoStepCompleted}
-          onNotificationSent={onDemoNotification}
+          onStepCompleted={handleStepCompletedStable}
+          onNotificationSent={handleNotificationStable}
+          onReset={handleResetStable}
         />
       )}
 
@@ -241,8 +283,11 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
       ) : (
         <SKUSummaryCards
           skus={seller.skus}
-          selectedSkuId={selectedSkuId}
-          onSelectSku={setSelectedSkuId}
+          selectedSkuId={activeSkuId ?? selectedSkuId}
+          onSelectSku={(skuId) => {
+            setSelectedSkuId(skuId);
+            setActiveSkuId(skuId);
+          }}
         />
       )}
 
@@ -280,10 +325,10 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
           ) : (
             <div ref={chartSectionRef} className="space-y-4">
               <PriceExplorationChart
-                skuId={selectedSkuId}
+                skuId={activeSkuId ?? selectedSkuId}
                 priceArms={history.price_arms}
               />
-              <ForecastFanChart skuId={selectedSkuId} sellerId={sellerId} refreshKey={historyRefreshKey} />
+              <ForecastFanChart skuId={activeSkuId ?? selectedSkuId} sellerId={sellerId} refreshKey={historyRefreshKey} />
               <ShockEventChart orderHistory={history.order_history} />
               <AgentReasoningLog
                 agentActions={history.agent_actions}
