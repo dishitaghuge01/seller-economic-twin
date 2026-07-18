@@ -79,6 +79,27 @@ def test_start_pairing_new_number(client):
     assert session["status"] == "pending"
 
 
+def test_start_pairing_with_name_persists_pending_seller_name(client):
+    response = client.post(
+        "/auth/start-pairing",
+        json={"phone_number": "+919876543210", "seller_name": "Riya"},
+    )
+
+    assert response.status_code == 200
+    session = database.get_pairing_session("+919876543210")
+    assert session is not None
+    assert session["pending_seller_name"] == "Riya"
+
+
+def test_start_pairing_without_name_still_works(client):
+    response = client.post("/auth/start-pairing", json={"phone_number": "+919876543210"})
+
+    assert response.status_code == 200
+    session = database.get_pairing_session("+919876543210")
+    assert session is not None
+    assert session["pending_seller_name"] is None
+
+
 def test_start_pairing_debounce(client):
     first = client.post("/auth/start-pairing", json={"phone_number": "+919876543210"})
     first_session = database.get_pairing_session("+919876543210")
@@ -184,6 +205,14 @@ def test_webhook_new_number_auto_creates_seller(client, monkeypatch):
     uuid.UUID(seller.auth_user_id)
     settings = database.get_seller_settings(seller.seller_id)
     assert settings.seller_id == seller.seller_id
+
+
+def test_create_seller_from_phone_uses_pending_name(client):
+    database.upsert_pairing_session("+919777777777", seller_name="Priya")
+
+    seller = database.create_seller_from_phone("+919777777777")
+
+    assert seller.seller_name == "Priya"
 
 
 def test_webhook_new_seller_zero_skus_gets_welcome_message_not_agent_cycle(client, monkeypatch):

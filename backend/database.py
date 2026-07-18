@@ -114,8 +114,12 @@ CREATE_TABLES_SQL = """
         phone_number        TEXT NOT NULL UNIQUE,
         language_preference TEXT NOT NULL DEFAULT 'hi',
         auth_user_id        UUID REFERENCES auth.users(id),
+        pending_action      TEXT,
         created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+
+    ALTER TABLE sellers
+        ADD COLUMN IF NOT EXISTS pending_action TEXT;
 
     CREATE TABLE IF NOT EXISTS skus (
         sku_id                  TEXT PRIMARY KEY,
@@ -205,13 +209,17 @@ CREATE_TABLES_SQL = """
     -- This table is intentionally outside the RLS model: pairing is handled
     -- entirely in the application layer before a seller has any auth identity.
     CREATE TABLE IF NOT EXISTS pairing_sessions (
-        phone_number    TEXT PRIMARY KEY,
-        status          TEXT NOT NULL DEFAULT 'pending',
-        jwt_token       TEXT,
-        seller_id       TEXT,
-        created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-        expires_at      TIMESTAMPTZ NOT NULL
+        phone_number        TEXT PRIMARY KEY,
+        status              TEXT NOT NULL DEFAULT 'pending',
+        jwt_token           TEXT,
+        seller_id           TEXT,
+        pending_seller_name TEXT,
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+        expires_at          TIMESTAMPTZ NOT NULL
     );
+
+    ALTER TABLE pairing_sessions
+        ADD COLUMN IF NOT EXISTS pending_seller_name TEXT;
 
     CREATE INDEX IF NOT EXISTS idx_orders_sku_date
         ON orders(sku_id, order_date DESC);
@@ -383,10 +391,10 @@ def insert_seller(seller: Seller) -> None:
             cur.execute(
                 """INSERT INTO sellers
                    (seller_id, seller_name, phone_number, language_preference,
-                    auth_user_id, created_at)
-                   VALUES (%s,%s,%s,%s,%s,%s)""",
+                    auth_user_id, pending_action, created_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s)""",
                 (seller.seller_id, seller.seller_name, seller.phone_number,
-                 seller.language_preference, seller.auth_user_id, seller.created_at)
+                 seller.language_preference, seller.auth_user_id, seller.pending_action, seller.created_at)
             )
 
 
@@ -422,11 +430,17 @@ def get_seller_by_auth_user_id(auth_user_id: str) -> Optional[Seller]:
     return _row_to_seller(row) if row else None
 
 
-def upsert_pairing_session(phone_number: str, ttl_minutes: int = 15) -> bool:
+def set_pending_action(seller_id: str, pending_action: Optional[str]) -> None:
+    with get_connection() as conn:
+        with get_cursor(conn) as cur:
+            cur.execute("UPDATE sellers SET pending_action = %s WHERE seller_id = %s", (pending_action, seller_id))
+
+
+def upsert_pairing_session(phone_number: str, ttl_minutes: int = 15, seller_name: Optional[str] = None) -> bool:
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute(
-                "SELECT status, created_at FROM pairing_sessions WHERE phone_number = %s",
+                "SELECT status, created_at, pending_seller_name FROM pairing_sessions WHERE phone_number = %s",
                 (phone_number,),
             )
             existing = cur.fetchone()
@@ -435,16 +449,22 @@ def upsert_pairing_session(phone_number: str, ttl_minutes: int = 15) -> bool:
                 if created_at is not None and datetime.now(timezone.utc) - created_at < timedelta(seconds=30):
                     return False
 
+            normalized_name = (seller_name or "").strip()
+            pending_name = normalized_name if normalized_name else None
+            if existing and existing["pending_seller_name"] and not pending_name:
+                pending_name = existing["pending_seller_name"]
+
             cur.execute(
                 """
                 INSERT INTO pairing_sessions
-                (phone_number, status, jwt_token, seller_id, created_at, expires_at)
-                VALUES (%s, 'pending', NULL, NULL, now(), now() + (%s * interval '1 minute'))
+                (phone_number, status, jwt_token, seller_id, pending_seller_name, created_at, expires_at)
+                VALUES (%s, 'pending', NULL, NULL, %s, now(), now() + (%s * interval '1 minute'))
                 ON CONFLICT (phone_number) DO UPDATE
                 SET status='pending', jwt_token=NULL, seller_id=NULL,
+                    pending_seller_name=COALESCE(EXCLUDED.pending_seller_name, pairing_sessions.pending_seller_name),
                     created_at=now(), expires_at=now() + (%s * interval '1 minute')
                 """,
-                (phone_number, ttl_minutes, ttl_minutes),
+                (phone_number, pending_name, ttl_minutes, ttl_minutes),
             )
             return True
 
@@ -458,6 +478,28 @@ def get_pairing_session(phone_number: str) -> Optional[dict]:
             )
             row = cur.fetchone()
     return dict(row) if row else None
+
+
+def get_pending_seller_name(phone_number: str) -> Optional[str]:
+    with get_connection() as conn:
+        with get_cursor(conn) as cur:
+            cur.execute(
+                "SELECT pending_seller_name FROM pairing_sessions WHERE phone_number = %s",
+                (phone_number,),
+            )
+            row = cur.fetchone()
+    if row is None:
+        return None
+    return row["pending_seller_name"]
+
+
+def update_seller_name(seller_id: str, seller_name: str) -> None:
+    with get_connection() as conn:
+        with get_cursor(conn) as cur:
+            cur.execute(
+                "UPDATE sellers SET seller_name = %s WHERE seller_id = %s",
+                (seller_name, seller_id),
+            )
 
 
 def complete_pairing_session(phone_number: str, jwt_token: str, seller_id: str) -> None:
@@ -480,9 +522,12 @@ def create_seller_from_phone(phone_number: str) -> Seller:
         suffix += 1
         seller_id = f"{seller_id_base}_{suffix}"
 
+    pending_name = get_pending_seller_name(phone_number)
+    seller_name = pending_name.strip() if pending_name and pending_name.strip() else "New Seller"
+
     seller = Seller(
         seller_id=seller_id,
-        seller_name="New Seller",
+        seller_name=seller_name,
         phone_number=phone_number,
         language_preference="hi",
         auth_user_id=auth_user_id,
@@ -508,6 +553,7 @@ def _row_to_seller(row: Dict[str, Any]) -> Seller:
         phone_number=row["phone_number"],
         language_preference=row["language_preference"],
         auth_user_id=row["auth_user_id"],
+        pending_action=row.get("pending_action"),
         created_at=_normalize_datetime(row["created_at"])
     )
 

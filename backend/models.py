@@ -21,6 +21,7 @@ class Seller:
     phone_number: str          # E.164 format, e.g. "+919876543210"
     language_preference: str   # "hi" or "en"
     auth_user_id: Optional[str] = None   # UUID string, references Supabase auth.users(id)
+    pending_action: Optional[str] = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 

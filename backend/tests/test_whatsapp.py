@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
+from twilio.base.exceptions import TwilioRestException
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -184,6 +185,164 @@ def test_webhook_happy_path(client, monkeypatch):
     assert {conversation.direction for conversation in conversations} == {"inbound", "outbound"}
 
 
+def test_webhook_first_message_with_zero_skus_sends_menu(client, monkeypatch):
+    seller = Seller(
+        seller_id="s_zero",
+        seller_name="Riya",
+        phone_number="+919900000001",
+        language_preference="hi",
+        auth_user_id=str(uuid.uuid4()),
+    )
+    database.insert_seller(seller)
+
+    monkeypatch.setattr(whatsapp_module.request_validator.RequestValidator, "validate", lambda self, url, params, signature: True)
+
+    response = client.post(
+        "/whatsapp/webhook",
+        data={
+            "MessageSid": "SM_MENU",
+            "From": f"whatsapp:{seller.phone_number}",
+            "To": "whatsapp:+14155238886",
+            "Body": "Hello",
+        },
+        headers={"X-Twilio-Signature": "valid"},
+    )
+
+    assert response.status_code == 200
+    assert "1. Naya product (SKU) add karein" in response.text
+    assert "2. Dashboard dekhein" in response.text
+    updated_seller = database.get_seller_by_id(seller.seller_id)
+    assert updated_seller is not None
+    assert updated_seller.pending_action == "awaiting_onboarding_choice"
+
+
+def test_webhook_reply_1_prompts_for_sku_details(client, monkeypatch):
+    seller = Seller(
+        seller_id="s_prompt",
+        seller_name="Riya",
+        phone_number="+919900000002",
+        language_preference="hi",
+        auth_user_id=str(uuid.uuid4()),
+    )
+    database.insert_seller(seller)
+    database.set_pending_action(seller.seller_id, "awaiting_onboarding_choice")
+
+    monkeypatch.setattr(whatsapp_module.request_validator.RequestValidator, "validate", lambda self, url, params, signature: True)
+
+    response = client.post(
+        "/whatsapp/webhook",
+        data={
+            "MessageSid": "SM_PROMPT",
+            "From": f"whatsapp:{seller.phone_number}",
+            "To": "whatsapp:+14155238886",
+            "Body": "1",
+        },
+        headers={"X-Twilio-Signature": "valid"},
+    )
+
+    assert response.status_code == 200
+    assert "Product ka naam, current stock" in response.text
+    updated_seller = database.get_seller_by_id(seller.seller_id)
+    assert updated_seller is not None
+    assert updated_seller.pending_action == "awaiting_sku_details"
+
+
+def test_webhook_well_formed_sku_details_creates_sku(client, monkeypatch):
+    seller = Seller(
+        seller_id="s_create",
+        seller_name="Riya",
+        phone_number="+919900000003",
+        language_preference="hi",
+        auth_user_id=str(uuid.uuid4()),
+    )
+    database.insert_seller(seller)
+    database.set_pending_action(seller.seller_id, "awaiting_sku_details")
+
+    monkeypatch.setattr(whatsapp_module.request_validator.RequestValidator, "validate", lambda self, url, params, signature: True)
+
+    response = client.post(
+        "/whatsapp/webhook",
+        data={
+            "MessageSid": "SM_CREATE",
+            "From": f"whatsapp:{seller.phone_number}",
+            "To": "whatsapp:+14155238886",
+            "Body": "Besan 1kg, 50, 10, 80, 100, 140",
+        },
+        headers={"X-Twilio-Signature": "valid"},
+    )
+
+    assert response.status_code == 200
+    assert "Product add ho gaya hai" in response.text
+    skus = database.get_skus_for_seller(seller.seller_id)
+    assert len(skus) == 1
+    assert skus[0].sku_name == "Besan 1kg"
+    updated_seller = database.get_seller_by_id(seller.seller_id)
+    assert updated_seller is not None
+    assert updated_seller.pending_action is None
+
+
+def test_webhook_malformed_sku_details_keeps_pending_action(client, monkeypatch):
+    seller = Seller(
+        seller_id="s_malformed",
+        seller_name="Riya",
+        phone_number="+919900000004",
+        language_preference="hi",
+        auth_user_id=str(uuid.uuid4()),
+    )
+    database.insert_seller(seller)
+    database.set_pending_action(seller.seller_id, "awaiting_sku_details")
+
+    monkeypatch.setattr(whatsapp_module.request_validator.RequestValidator, "validate", lambda self, url, params, signature: True)
+
+    response = client.post(
+        "/whatsapp/webhook",
+        data={
+            "MessageSid": "SM_MALFORMED",
+            "From": f"whatsapp:{seller.phone_number}",
+            "To": "whatsapp:+14155238886",
+            "Body": "only one field",
+        },
+        headers={"X-Twilio-Signature": "valid"},
+    )
+
+    assert response.status_code == 200
+    assert "sahi format" in response.text.lower() or "format" in response.text.lower()
+    updated_seller = database.get_seller_by_id(seller.seller_id)
+    assert updated_seller is not None
+    assert updated_seller.pending_action == "awaiting_sku_details"
+
+
+def test_webhook_reply_2_sends_dashboard_and_clears_pending_action(client, monkeypatch):
+    seller = Seller(
+        seller_id="s_dashboard",
+        seller_name="Riya",
+        phone_number="+919900000005",
+        language_preference="hi",
+        auth_user_id=str(uuid.uuid4()),
+    )
+    database.insert_seller(seller)
+    database.set_pending_action(seller.seller_id, "awaiting_onboarding_choice")
+
+    monkeypatch.setattr(whatsapp_module.request_validator.RequestValidator, "validate", lambda self, url, params, signature: True)
+
+    response = client.post(
+        "/whatsapp/webhook",
+        data={
+            "MessageSid": "SM_DASH",
+            "From": f"whatsapp:{seller.phone_number}",
+            "To": "whatsapp:+14155238886",
+            "Body": "2",
+        },
+        headers={"X-Twilio-Signature": "valid"},
+    )
+
+    assert response.status_code == 200
+    assert "Dashboard" in response.text or "dashboard" in response.text.lower()
+    updated_seller = database.get_seller_by_id(seller.seller_id)
+    assert updated_seller is not None
+    assert updated_seller.pending_action is None
+
+
 def test_webhook_agent_core_failure_graceful(client, monkeypatch):
     seller, _ = _seed_seller()
 
@@ -282,7 +441,7 @@ def test_send_success(client, monkeypatch):
             return type("Message", (), {"sid": "SM999"})()
 
     class FakeClient:
-        def __init__(self, account_sid, auth_token):
+        def __init__(self, account_sid, auth_token, http_client=None):
             self.messages = FakeMessages()
 
     monkeypatch.setattr(whatsapp_module, "Client", FakeClient)
@@ -300,6 +459,31 @@ def test_send_success(client, monkeypatch):
     assert conversations[0].message_sid == "SM999"
 
 
+def test_send_twilio_credits_exhausted_returns_skipped(client, monkeypatch, caplog):
+    seller, _ = _seed_seller()
+
+    class FakeMessages:
+        def create(self, **kwargs):
+            raise TwilioRestException(401, "https://api.twilio.com/2010-04-01/Accounts/AC123/Messages.json", "Account is not active", code=20003)
+
+    class FakeClient:
+        def __init__(self, account_sid, auth_token, http_client=None):
+            self.messages = FakeMessages()
+
+    monkeypatch.setattr(whatsapp_module, "Client", FakeClient)
+
+    response = client.post(
+        "/whatsapp/send",
+        json={"seller_id": seller.seller_id, "message_body": "Hello"},
+        headers={"X-Internal-Key": "test-internal-key"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "skipped", "reason": "twilio_credits_exhausted"}
+    assert "TWILIO_CREDITS_EXHAUSTED" in caplog.text
+    assert database.get_conversation_history(seller.seller_id, limit=10) == []
+
+
 def test_send_outside_24h_window_returns_graceful_200(client, monkeypatch, caplog):
     seller, _ = _seed_seller()
 
@@ -311,7 +495,7 @@ def test_send_outside_24h_window_returns_graceful_200(client, monkeypatch, caplo
             raise FakeTwilioError("63016")
 
     class FakeClient:
-        def __init__(self, account_sid, auth_token):
+        def __init__(self, account_sid, auth_token, http_client=None):
             self.messages = FakeMessages()
 
     monkeypatch.setattr(whatsapp_module, "Client", FakeClient)

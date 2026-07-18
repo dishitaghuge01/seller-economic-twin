@@ -294,28 +294,30 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
           <hr className="border-gray-200" />
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-gray-900">{selectedSku.sku_name}</h2>
-            <div>
-              <button
-                onClick={async () => {
-                  if (!selectedSkuId) return;
-                  setHistoryLoading(true);
-                  setErr(null);
-                  try {
-                    await apiClient.triggerPricingNow(sellerId, selectedSkuId);
-                    // refresh seller; let the selectedSkuId effect fetch history
-                    await loadSeller();
-                  } catch (e) {
-                    setErr(e.message || String(e));
-                  } finally {
-                    setHistoryLoading(false);
-                  }
-                }}
-                disabled={!selectedSkuId}
-                className="ml-2 rounded-md bg-indigo-600 text-white px-3 py-1 text-sm disabled:opacity-50"
-              >
-                Run Pricing Now
-              </button>
-            </div>
+            {!isDemoSeller && (
+              <div>
+                <button
+                  onClick={async () => {
+                    if (!selectedSkuId) return;
+                    setHistoryLoading(true);
+                    setErr(null);
+                    try {
+                      await apiClient.triggerPricingNow(sellerId, selectedSkuId);
+                      // refresh seller; let the selectedSkuId effect fetch history
+                      await loadSeller();
+                    } catch (e) {
+                      setErr(e.message || String(e));
+                    } finally {
+                      setHistoryLoading(false);
+                    }
+                  }}
+                  disabled={!selectedSkuId}
+                  className="ml-2 rounded-md bg-indigo-600 text-white px-3 py-1 text-sm disabled:opacity-50"
+                >
+                  Run Pricing Now
+                </button>
+              </div>
+            )}
           </div>
 
           {!history ? (

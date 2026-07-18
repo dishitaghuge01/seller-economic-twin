@@ -88,6 +88,27 @@ describe("SellerPanel Run Pricing Now preserves selection", () => {
 });
 
 describe("SellerPanel demo runner", () => {
+  test("test_run_pricing_now_hidden_for_demo_seller", async () => {
+    apiClient.getSeller.mockResolvedValue({
+      seller: { seller_name: "Demo Seller" },
+      skus: [
+        {
+          sku_id: "demo_sku",
+          sku_name: "Demo SKU",
+          current_stock: 10,
+          current_chosen_price: 300,
+          last_action: { stockout_severity: "safe" },
+        },
+      ],
+    });
+    apiClient.getDemoStatus.mockResolvedValue({ status: "not_started" });
+
+    render(<SellerPanel sellerId="s1" isDemoSeller={true} />);
+
+    await screen.findByText("Demo Seller");
+    expect(screen.queryByRole("button", { name: /Run Pricing Now/i })).not.toBeInTheDocument();
+  });
+
   test("test_demo_runner_hidden_for_non_demo_seller", async () => {
     apiClient.getSeller.mockResolvedValue({ seller: { seller_name: "Test Seller" }, skus: [] });
     apiClient.getDemoStatus.mockResolvedValue({ status: "not_started" });

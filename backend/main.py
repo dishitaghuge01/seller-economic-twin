@@ -21,6 +21,7 @@ from demo import DEMO_LOGIN_ENABLED, DEMO_SELLER_ID, router as demo_router
 from forecasting_tool import run_forecasting_tool
 from models import Seller, SellerSettings, SKU
 from scheduler import run_scheduler_tick, scheduler as scheduler_job
+from sku_creation import create_sku_for_seller
 from sku_resolution import resolve_default_sku
 from whatsapp import router as whatsapp_router
 
@@ -67,20 +68,6 @@ class CreateSkuRequest(BaseModel):
     unit_cost: int
     price_floor: int
     price_ceiling: int
-
-
-def _slugify_sku_name(value: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
-    return slug[:30] or "sku"
-
-
-def _generate_sku_id(sku_name: str) -> str:
-    base = _slugify_sku_name(sku_name)
-    candidate = base
-    while database.get_sku_by_id(candidate) is not None:
-        suffix = uuid.uuid4().hex[:6]
-        candidate = f"{base}_{suffix}"
-    return candidate
 
 
 @app.on_event("startup")
@@ -162,32 +149,18 @@ def create_sku(
     payload: CreateSkuRequest,
     seller: Seller = Depends(get_current_seller_for_path),
 ) -> dict:
-    sku_name = (payload.sku_name or "").strip()
-    if not sku_name:
-        raise HTTPException(status_code=400, detail="Product name is required")
-    if payload.current_stock < 0:
-        raise HTTPException(status_code=400, detail="Current stock must be 0 or greater")
-    if payload.reorder_point < 0:
-        raise HTTPException(status_code=400, detail="Reorder point must be 0 or greater")
-
-    sku_id = _generate_sku_id(sku_name)
     try:
-        sku = SKU(
-            sku_id=sku_id,
+        sku = create_sku_for_seller(
             seller_id=seller_id,
-            sku_name=sku_name,
+            sku_name=payload.sku_name,
             current_stock=payload.current_stock,
             reorder_point=payload.reorder_point,
             unit_cost=payload.unit_cost,
             price_floor=payload.price_floor,
             price_ceiling=payload.price_ceiling,
-            current_chosen_price=None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    database.insert_sku(sku)
-    database.recompute_price_arms(sku.sku_id, sku.price_floor, sku.price_ceiling)
 
     return {
         "sku_id": sku.sku_id,

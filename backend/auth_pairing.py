@@ -20,6 +20,7 @@ WA_ME_LINK = (
 
 class StartPairingRequest(BaseModel):
     phone_number: str
+    seller_name: str | None = None
 
 
 def _normalize_phone(phone_number: str) -> str:
@@ -40,10 +41,13 @@ def _normalize_phone(phone_number: str) -> str:
 @router.post("/auth/start-pairing")
 async def start_pairing(body: StartPairingRequest):
     phone = _normalize_phone(body.phone_number)
-    database.upsert_pairing_session(phone)
+    seller_name = body.seller_name.strip() if body.seller_name else None
+    database.upsert_pairing_session(phone, seller_name=seller_name)
 
     existing_seller = database.get_seller_by_phone(phone)
     if existing_seller is not None:
+        if existing_seller.seller_name == "New Seller" and seller_name:
+            database.update_seller_name(existing_seller.seller_id, seller_name)
         try:
             token = mint_seller_jwt(existing_seller.auth_user_id)
             result = send_whatsapp_message(

@@ -14,6 +14,7 @@ function getApiBaseUrl() {
 
 export default function LoginScreen({ onLoginSuccess }) {
   const [phone, setPhone] = useState("");
+  const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
@@ -107,10 +108,16 @@ export default function LoginScreen({ onLoginSuccess }) {
     setStatusMessage("Waiting for confirmation on WhatsApp…");
 
     try {
+      const payload = { phone_number: normalizedPhone };
+      const trimmedName = name.trim();
+      if (trimmedName) {
+        payload.seller_name = trimmedName;
+      }
+
       const response = await fetch(`${getApiBaseUrl()}/auth/start-pairing`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone_number: normalizedPhone }),
+        body: JSON.stringify(payload),
       });
       const data = await response.json();
 
@@ -179,6 +186,22 @@ export default function LoginScreen({ onLoginSuccess }) {
 
         {step === "phone" ? (
           <form className="space-y-4" onSubmit={handleStartPairing}>
+            <div>
+              <label htmlFor="name" className="mb-1 block text-sm font-medium text-gray-700">
+                Your name
+              </label>
+              <input
+                id="name"
+                type="text"
+                inputMode="text"
+                autoComplete="name"
+                placeholder="Riya"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                className="w-full rounded-full border border-gray-300 px-4 py-3 text-sm outline-none ring-0 focus:border-gray-900"
+              />
+            </div>
+
             <div>
               <label htmlFor="phone" className="mb-1 block text-sm font-medium text-gray-700">
                 Phone number
