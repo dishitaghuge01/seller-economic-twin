@@ -29,7 +29,8 @@ from models import Seller, SKU, Order, PriceArm, AgentAction, Conversation, Sell
 
 DATABASE_URL = os.environ["SUPABASE_DB_URL"]
 
-_pool = ThreadedConnectionPool(minconn=1, maxconn=10, dsn=DATABASE_URL)
+# Increase pool ceiling for headroom to avoid transient exhaustion
+_pool = ThreadedConnectionPool(minconn=2, maxconn=20, dsn=DATABASE_URL)
 
 
 def _normalize_datetime(value: Any) -> Any:
@@ -55,7 +56,14 @@ def get_connection():
     start = time.perf_counter()
     conn = _pool.getconn()
     elapsed = time.perf_counter() - start
-    if elapsed > 0.5:
+    # Log slow acquisitions; warn loudly if it's extremely slow (possible exhaustion)
+    if elapsed > 5:
+        logging.warning(
+            "pool getconn took %.2fs — pool may be near exhaustion (maxconn=%s)",
+            elapsed,
+            getattr(_pool, "maxconn", "unknown"),
+        )
+    elif elapsed > 0.5:
         logging.info("pool getconn took %.3fs", elapsed)
     try:
         yield conn
@@ -64,7 +72,24 @@ def get_connection():
         conn.rollback()
         raise
     finally:
-        _pool.putconn(conn)
+        # Return or discard the connection safely. If the connection is closed
+        # or otherwise broken, discard it (close=True) so the pool can open a
+        # healthy replacement on next getconn(). Guard against putconn raising
+        # so we don't leak pool slots on errors.
+        try:
+            if getattr(conn, "closed", False):
+                try:
+                    _pool.putconn(conn, close=True)
+                except Exception:
+                    logging.warning("Failed to discard closed connection from pool", exc_info=True)
+            else:
+                try:
+                    _pool.putconn(conn)
+                except Exception:
+                    logging.warning("Failed to return connection to pool", exc_info=True)
+        except Exception:
+            # If accessing conn properties itself fails, log and continue.
+            logging.warning("Unexpected error while returning connection to pool", exc_info=True)
 
 
 @contextmanager

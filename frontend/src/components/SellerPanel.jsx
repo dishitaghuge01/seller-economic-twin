@@ -7,6 +7,7 @@ import ShockEventChart from "./ShockEventChart.jsx";
 import AgentReasoningLog from "./AgentReasoningLog.jsx";
 import SettingsDrawer from "./SettingsDrawer.jsx";
 import DemoRunner from "./DemoRunner.jsx";
+import LoadingSpinner from "./LoadingSpinner.jsx";
 
 export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNotification }) {
   const [seller, setSeller] = useState(null);
@@ -318,7 +319,15 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
           </div>
 
           {!history ? (
-            <div className="h-64 bg-gray-100 rounded-xl animate-pulse" />
+            <LoadingSpinner
+              messages={[
+                "Pulling price history...",
+                "Counting times each price was tried...",
+                "Loading order history...",
+                "Tallying the band's choices...",
+              ]}
+              heightClass="h-64"
+            />
           ) : (
             <div ref={chartSectionRef} className="space-y-4">
               <PriceExplorationChart

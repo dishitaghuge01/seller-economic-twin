@@ -9,6 +9,7 @@ import {
   ReferenceLine,
 } from "recharts";
 import apiClient from "../apiClient.js";
+import LoadingSpinner from "./LoadingSpinner.jsx";
 
 const severityColors = {
   urgent: "#dc2626",
@@ -61,12 +62,7 @@ export default function ForecastFanChart({ skuId, sellerId, refreshKey }) {
   }, [loading]);
 
   if (loading) {
-    return (
-      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 h-80 flex flex-col items-center justify-center">
-        <div className="animate-spin h-8 w-8 border-2 border-gray-300 border-t-gray-800 rounded-full" />
-        <p className="mt-3 text-xs text-gray-500">{loadingMessages[messageIndex]}</p>
-      </div>
-    );
+    return <LoadingSpinner messages={loadingMessages} heightClass="h-80" />;
   }
   if (!data) return null;
 
