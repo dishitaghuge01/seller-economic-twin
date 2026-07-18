@@ -32,9 +32,22 @@ async function request(path, options = {}) {
     headers,
   });
 
-  const contentType = res.headers.get("content-type") || "";
-  const bodyText = await res.text();
-  const parsedBody = contentType.includes("application/json") && bodyText ? JSON.parse(bodyText) : null;
+  const contentType = res.headers?.get?.("content-type") || "";
+  let bodyText = "";
+  let parsedBody = null;
+
+  if (typeof res.text === "function") {
+    bodyText = await res.text();
+    if (contentType.includes("application/json") && bodyText) {
+      try {
+        parsedBody = JSON.parse(bodyText);
+      } catch {
+        parsedBody = null;
+      }
+    }
+  } else if (typeof res.json === "function") {
+    parsedBody = await res.json();
+  }
 
   if (!res.ok) {
     if (res.status === 401) {
@@ -55,16 +68,32 @@ async function request(path, options = {}) {
   }
 
   return bodyText ? JSON.parse(bodyText) : null;
-  if (contentType.includes("application/json")) {
-    return res.json();
-  }
-
-  const text = await res.text();
-  return text ? JSON.parse(text) : null;
 }
 
 export const getWhoAmI = async () => {
   return request("/seller/me");
+};
+
+export const startDemo = async (sellerId) => {
+  return request(`/seller/${sellerId}/demo/start`, {
+    method: "POST",
+  });
+};
+
+export const stepDemo = async (sellerId) => {
+  return request(`/seller/${sellerId}/demo/step`, {
+    method: "POST",
+  });
+};
+
+export const resetDemo = async (sellerId) => {
+  return request(`/seller/${sellerId}/demo/reset`, {
+    method: "POST",
+  });
+};
+
+export const getDemoStatus = async (sellerId) => {
+  return request(`/seller/${sellerId}/demo/status`);
 };
 
 export const getSeller = async (sellerId) => {

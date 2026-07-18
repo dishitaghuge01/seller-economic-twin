@@ -16,7 +16,7 @@ const severityColors = {
   safe: "#16a34a",
 };
 
-export default function ForecastFanChart({ skuId, sellerId }) {
+export default function ForecastFanChart({ skuId, sellerId, refreshKey }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -30,7 +30,7 @@ export default function ForecastFanChart({ skuId, sellerId }) {
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, refreshKey]);
 
   if (loading) {
     return (

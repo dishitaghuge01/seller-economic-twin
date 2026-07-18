@@ -135,3 +135,24 @@ class SellerSettings:
     notify_on_stockout_risk: bool = True
     price_change_threshold: float = 0.05    # report only if price changes by > 5%
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+@dataclass
+class DemoState:
+    seller_id: str
+    current_day: int = 0
+    max_days: int = 6
+    shock_sku_id: Optional[str] = None
+    depletion_sku_id: Optional[str] = None
+    shock_triggered: bool = False
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+@dataclass
+class DemoState:
+    seller_id: str
+    current_day: int = 0
+    max_days: int = 6
+    shock_sku_id: Optional[str] = None
+    depletion_sku_id: Optional[str] = None
+    shock_triggered: bool = False
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

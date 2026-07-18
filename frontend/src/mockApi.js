@@ -197,7 +197,102 @@ export const getConversations = async (sellerId) => {
   return { messages: MOCK_CONVERSATIONS };
 };
 
+let demoState = { status: "not_started", currentDay: 0, maxDays: 6 };
+
+export const startDemo = async (sellerId) => {
+  await delay(400);
+  demoState = { status: "running", currentDay: 0, maxDays: 6 };
+  return {
+    status: "started",
+    current_day: 0,
+    max_days: demoState.maxDays,
+    depletion_sku: buildDemoSnapshot("blue_kurti"),
+    shock_sku: buildDemoSnapshot("cotton_palazzo"),
+  };
+};
+
+export const stepDemo = async (sellerId) => {
+  await delay(600);
+  const nextDay = demoState.currentDay + 1;
+  demoState.currentDay = nextDay;
+  if (nextDay >= demoState.maxDays) {
+    demoState.status = "complete";
+  } else {
+    demoState.status = "running";
+  }
+
+  return buildDemoStep(nextDay);
+};
+
+export const resetDemo = async (sellerId) => {
+  await delay(300);
+  demoState = { status: "not_started", currentDay: 0, maxDays: 6 };
+  return { status: "reset" };
+};
+
+export const getDemoStatus = async (sellerId) => {
+  await delay(150);
+  if (demoState.status === "not_started") {
+    return { status: "not_started" };
+  }
+  if (demoState.status === "complete") {
+    return { status: "complete", current_day: demoState.currentDay, max_days: demoState.maxDays };
+  }
+  return { status: "running", current_day: demoState.currentDay, max_days: demoState.maxDays };
+};
+
 // ---- Helpers ----
+
+function buildDemoSnapshot(skuId) {
+  const sku = MOCK_SKUS.find((item) => item.sku_id === skuId) || MOCK_SKUS[0];
+  return {
+    sku_id: sku.sku_id,
+    sku_name: sku.sku_name,
+    current_stock: sku.current_stock,
+    current_chosen_price: sku.current_chosen_price,
+    reorder_point: sku.reorder_point,
+    stockout_severity: sku.last_action?.stockout_severity || "safe",
+  };
+}
+
+function buildDemoStep(day) {
+  const shockSkuId = "cotton_palazzo";
+  const depletionSkuId = "blue_kurti";
+  const shockTriggeredToday = day === 2;
+
+  let notifications = [];
+  if (shockTriggeredToday) {
+    notifications = [
+      { sku_id: shockSkuId, sent: true, reason: "shock arc" },
+      { sku_id: depletionSkuId, sent: false, reason: "price change below threshold" },
+    ];
+  } else if (day === 4) {
+    notifications = [{ sku_id: depletionSkuId, sent: true, reason: "depletion arc" }];
+  } else {
+    notifications = [{ sku_id: depletionSkuId, sent: false, reason: "price change below threshold" }];
+  }
+
+  return {
+    day,
+    max_days: demoState.maxDays,
+    depletion_sku: buildDemoSnapshot(depletionSkuId),
+    shock_sku: buildDemoSnapshot(shockSkuId),
+    shock_event_triggered_today: shockTriggeredToday,
+    notifications,
+    agent_messages: [
+      {
+        sku_id: depletionSkuId,
+        seller_message: "Stock is trending down and restocking is advised.",
+        reasoning_trace: "Demo agent evaluated depletion risk.",
+      },
+      {
+        sku_id: shockSkuId,
+        seller_message: "Demand shifted today — the market signal changed.",
+        reasoning_trace: "Demo agent evaluated demand shock.",
+      },
+    ],
+  };
+}
 
 function generateMockOrderHistory(skuId) {
   const lambda = skuId === "blue_kurti" ? 1.4 : 2.0;

@@ -6,8 +6,9 @@ import ForecastFanChart from "./ForecastFanChart.jsx";
 import ShockEventChart from "./ShockEventChart.jsx";
 import AgentReasoningLog from "./AgentReasoningLog.jsx";
 import SettingsDrawer from "./SettingsDrawer.jsx";
+import DemoRunner from "./DemoRunner.jsx";
 
-export default function SellerPanel({ sellerId }) {
+export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNotification }) {
   const [seller, setSeller] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
@@ -24,6 +25,7 @@ export default function SellerPanel({ sellerId }) {
   const [newUnitCost, setNewUnitCost] = useState(80);
   const [newPriceFloor, setNewPriceFloor] = useState(100);
   const [newPriceCeiling, setNewPriceCeiling] = useState(140);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
 
   const loadSeller = useCallback(async () => {
     setLoading(true);
@@ -48,14 +50,26 @@ export default function SellerPanel({ sellerId }) {
     loadSeller();
   }, [loadSeller]);
 
-  useEffect(() => {
+  const refreshHistory = useCallback(async () => {
     if (!selectedSkuId) return;
     setHistoryLoading(true);
-    apiClient
-      .getSkuHistory(sellerId, selectedSkuId)
-      .then(setHistory)
-      .finally(() => setHistoryLoading(false));
+    setErr(null);
+    try {
+      const nextHistory = await apiClient.getSkuHistory(sellerId, selectedSkuId);
+      setHistory(nextHistory);
+      return nextHistory;
+    } catch (e) {
+      setErr(e.message || "Failed to load history");
+      throw e;
+    } finally {
+      setHistoryLoading(false);
+    }
   }, [sellerId, selectedSkuId]);
+
+  useEffect(() => {
+    if (!selectedSkuId) return;
+    void refreshHistory();
+  }, [refreshHistory]);
 
   const canCreateSku =
     newSkuName.trim().length > 0 &&
@@ -120,6 +134,12 @@ export default function SellerPanel({ sellerId }) {
     );
   };
 
+  const handleDemoStepCompleted = useCallback(async () => {
+    await loadSeller();
+    await refreshHistory();
+    setHistoryRefreshKey((value) => value + 1);
+  }, [loadSeller, refreshHistory]);
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -172,6 +192,15 @@ export default function SellerPanel({ sellerId }) {
           </button>
         </div>
       </div>
+
+      {isDemoSeller && (
+        <DemoRunner
+          sellerId={sellerId}
+          isDemoSeller={isDemoSeller}
+          onStepCompleted={handleDemoStepCompleted}
+          onNotificationSent={onDemoNotification}
+        />
+      )}
 
       {seller.skus.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-gray-300 bg-white px-4 py-8 text-center text-sm text-gray-600 shadow-sm">
@@ -228,7 +257,7 @@ export default function SellerPanel({ sellerId }) {
                 skuId={selectedSkuId}
                 priceArms={history.price_arms}
               />
-              <ForecastFanChart skuId={selectedSkuId} sellerId={sellerId} />
+              <ForecastFanChart skuId={selectedSkuId} sellerId={sellerId} refreshKey={historyRefreshKey} />
               <ShockEventChart orderHistory={history.order_history} />
               <AgentReasoningLog
                 agentActions={history.agent_actions}

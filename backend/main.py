@@ -7,15 +7,16 @@ from typing import Dict, Optional
 from dotenv import load_dotenv
 load_dotenv()
 
-import jwt
 from apscheduler.schedulers.background import BackgroundScheduler
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 import database
 from agent_core import AgentCoreError, run_agent_cycle
 from auth_pairing import router as auth_pairing_router
+from auth_utils import get_current_seller, get_current_seller_for_path, mint_seller_jwt
+from demo import DEMO_LOGIN_ENABLED, DEMO_SELLER_ID, router as demo_router
 from forecasting_tool import run_forecasting_tool
 from models import Seller, SellerSettings, SKU
 from scheduler import run_scheduler_tick, scheduler as scheduler_job
@@ -37,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 app.include_router(whatsapp_router, prefix="/whatsapp")
 app.include_router(auth_pairing_router)
+app.include_router(demo_router)
 
 _forecast_cache: Dict[str, tuple[float, dict]] = {}
 _FORECAST_TTL_SECONDS = 6 * 60 * 60
@@ -80,45 +82,6 @@ def _generate_sku_id(sku_name: str) -> str:
     return candidate
 
 
-async def get_current_seller(authorization: Optional[str] = Header(None, alias="Authorization")) -> Seller:
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
-    token = authorization.split(" ", 1)[1].strip()
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
-    jwt_secret = os.getenv("SUPABASE_JWT_SECRET")
-    if not jwt_secret:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
-    try:
-        payload = jwt.decode(
-            token,
-            jwt_secret,
-            algorithms=["HS256"],
-            audience="authenticated",
-            options={"require": ["exp"]},
-        )
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid authentication token") from None
-
-    auth_user_id = payload.get("sub")
-    if not auth_user_id:
-        raise HTTPException(status_code=401, detail="Invalid authentication token")
-
-    seller = database.get_seller_by_auth_user_id(str(auth_user_id))
-    if seller is None:
-        raise HTTPException(status_code=404, detail="account not found")
-    return seller
-
-
-async def get_current_seller_for_path(seller_id: str, seller: Seller = Depends(get_current_seller)) -> Seller:
-    if seller.seller_id != seller_id:
-        raise HTTPException(status_code=403, detail="Not authorized for this seller")
-    return seller
-
-
 @app.on_event("startup")
 def startup_event() -> None:
     # This creates only the application's own tables. auth.users is managed
@@ -144,11 +107,14 @@ def ping() -> dict:
 
 @app.get("/seller/me")
 def get_current_seller_profile(seller: Seller = Depends(get_current_seller)) -> dict:
-    return {
+    profile = {
         "seller_id": seller.seller_id,
         "seller_name": seller.seller_name,
         "language_preference": seller.language_preference,
     }
+    if seller.seller_id == DEMO_SELLER_ID and DEMO_LOGIN_ENABLED:
+        profile["is_demo_seller"] = True
+    return profile
 
 
 @app.get("/seller/{seller_id}")

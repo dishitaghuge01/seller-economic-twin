@@ -658,3 +658,194 @@ def test_real_provider_api_integration(monkeypatch):
     assert len(result["seller_message"]) < 600
     print(result["seller_message"])
     print(result["reasoning_trace"])
+
+
+# --- Tests for price_change_threshold feature ---
+
+def test_small_price_change_suppresses_notification(fake_claude, monkeypatch):
+    """Test that price changes below threshold suppress WhatsApp notification."""
+    _seed_seller_and_sku()
+    
+    # First cycle: establish initial price
+    monkeypatch.setattr(
+        agent_core,
+        "run_pricing_tool",
+        lambda seller_state, rng_seed=None: {
+            "chosen_price": 410,
+            "updated_arms": [{"price_value": 410, "alpha": 3.0, "beta_param": 2.0, "times_chosen": 2}],
+            "exploration_rationale": "initial",
+            "chosen_arm_credible_interval": [0.2, 0.8],
+            "cold_start": False,
+        },
+    )
+    monkeypatch.setattr(
+        agent_core,
+        "run_forecasting_tool",
+        lambda seller_state, n_simulations=500, rng_seed=None: {
+            "severity": "safe",
+            "p_stockout_5d": 0.1,
+            "p_stockout_10d": 0.2,
+            "forecast_summary": "safe",
+            "fan_chart": [],
+            "confidence": "high",
+            "lambda_source": "estimated",
+        },
+    )
+    
+    first_result = agent_core.run_agent_cycle("s1", "k1", "scheduled")
+    assert first_result["chosen_price"] == 410
+    assert first_result.get("notification_suppressed") is False
+    
+    # Second cycle: tiny price change (1% when threshold is 5%)
+    # 410 -> 414 = 4/410 = 0.98% < 5% threshold -> should suppress
+    monkeypatch.setattr(
+        agent_core,
+        "run_pricing_tool",
+        lambda seller_state, rng_seed=None: {
+            "chosen_price": 414,
+            "updated_arms": [{"price_value": 414, "alpha": 3.0, "beta_param": 2.0, "times_chosen": 2}],
+            "exploration_rationale": "small change",
+            "chosen_arm_credible_interval": [0.2, 0.8],
+            "cold_start": False,
+        },
+    )
+    
+    second_result = agent_core.run_agent_cycle("s1", "k1", "scheduled")
+    assert second_result["chosen_price"] == 414
+    assert second_result.get("notification_suppressed") is True
+    
+    # Verify agent action was still recorded (for trend data)
+    actions = database.get_agent_action_history("k1", limit=2)
+    assert len(actions) >= 2
+    assert actions[0].chosen_price == 414
+
+
+def test_large_price_change_notifies(fake_claude, monkeypatch):
+    """Test that price changes above threshold do NOT suppress notification."""
+    _seed_seller_and_sku()
+    
+    # First cycle: establish initial price of 410
+    monkeypatch.setattr(
+        agent_core,
+        "run_pricing_tool",
+        lambda seller_state, rng_seed=None: {
+            "chosen_price": 410,
+            "updated_arms": [{"price_value": 410, "alpha": 3.0, "beta_param": 2.0, "times_chosen": 2}],
+            "exploration_rationale": "initial",
+            "chosen_arm_credible_interval": [0.2, 0.8],
+            "cold_start": False,
+        },
+    )
+    monkeypatch.setattr(
+        agent_core,
+        "run_forecasting_tool",
+        lambda seller_state, n_simulations=500, rng_seed=None: {
+            "severity": "safe",
+            "p_stockout_5d": 0.1,
+            "p_stockout_10d": 0.2,
+            "forecast_summary": "safe",
+            "fan_chart": [],
+            "confidence": "high",
+            "lambda_source": "estimated",
+        },
+    )
+    
+    first_result = agent_core.run_agent_cycle("s1", "k1", "scheduled")
+    assert first_result["chosen_price"] == 410
+    
+    # Second cycle: large price change (7.3% when threshold is 5%)
+    # 410 -> 450 = 40/410 = 9.76% > 5% threshold -> should NOT suppress
+    monkeypatch.setattr(
+        agent_core,
+        "run_pricing_tool",
+        lambda seller_state, rng_seed=None: {
+            "chosen_price": 450,
+            "updated_arms": [{"price_value": 450, "alpha": 3.0, "beta_param": 2.0, "times_chosen": 2}],
+            "exploration_rationale": "significant change",
+            "chosen_arm_credible_interval": [0.2, 0.8],
+            "cold_start": False,
+        },
+    )
+    
+    second_result = agent_core.run_agent_cycle("s1", "k1", "scheduled")
+    assert second_result["chosen_price"] == 450
+    assert second_result.get("notification_suppressed") is False
+
+
+def test_user_message_never_suppressed(fake_claude, monkeypatch):
+    """Test that user_message triggers never suppress notifications, even for tiny changes."""
+    _seed_seller_and_sku()
+    
+    # Establish initial price of 410
+    monkeypatch.setattr(
+        agent_core,
+        "run_pricing_tool",
+        lambda seller_state, rng_seed=None: {
+            "chosen_price": 410,
+            "updated_arms": [{"price_value": 410, "alpha": 3.0, "beta_param": 2.0, "times_chosen": 2}],
+            "exploration_rationale": "initial",
+            "chosen_arm_credible_interval": [0.2, 0.8],
+            "cold_start": False,
+        },
+    )
+    monkeypatch.setattr(
+        agent_core,
+        "run_forecasting_tool",
+        lambda seller_state, n_simulations=500, rng_seed=None: {
+            "severity": "safe",
+            "p_stockout_5d": 0.1,
+            "p_stockout_10d": 0.2,
+            "forecast_summary": "safe",
+            "fan_chart": [],
+            "confidence": "high",
+            "lambda_source": "estimated",
+        },
+    )
+    
+    first_result = agent_core.run_agent_cycle("s1", "k1", "scheduled")
+    assert first_result["chosen_price"] == 410
+    
+    # User message with tiny price change: 410 -> 411 (0.24% < 5%)
+    # Should NOT be suppressed because trigger is "user_message"
+    result = agent_core.run_agent_cycle("s1", "k1", "user_message", "kya price kam kar sakte ho")
+    
+    assert result.get("notification_suppressed") is False
+
+
+def test_first_ever_cycle_always_notifies(fake_claude, monkeypatch):
+    """Test that first cycle (no prior price) always notifies regardless of threshold."""
+    _seed_seller_and_sku()
+    
+    monkeypatch.setattr(
+        agent_core,
+        "run_pricing_tool",
+        lambda seller_state, rng_seed=None: {
+            "chosen_price": 410,
+            "updated_arms": [{"price_value": 410, "alpha": 3.0, "beta_param": 2.0, "times_chosen": 2}],
+            "exploration_rationale": "initial",
+            "chosen_arm_credible_interval": [0.2, 0.8],
+            "cold_start": False,
+        },
+    )
+    monkeypatch.setattr(
+        agent_core,
+        "run_forecasting_tool",
+        lambda seller_state, n_simulations=500, rng_seed=None: {
+            "severity": "safe",
+            "p_stockout_5d": 0.1,
+            "p_stockout_10d": 0.2,
+            "forecast_summary": "safe",
+            "fan_chart": [],
+            "confidence": "high",
+            "lambda_source": "estimated",
+        },
+    )
+    
+    # No prior actions exist for this SKU
+    assert database.get_last_agent_action("k1") is None
+    
+    result = agent_core.run_agent_cycle("s1", "k1", "scheduled")
+    
+    # First cycle should never suppress, even if threshold is high
+    assert result.get("notification_suppressed") is False
+    assert result["chosen_price"] == 410

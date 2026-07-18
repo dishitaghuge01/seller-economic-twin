@@ -37,10 +37,13 @@ def run_scheduler_tick_now(now: Optional[datetime] = None) -> None:
         if not _is_due(current_time, seller_settings.daily_alert_time):
             continue
 
-        for sku in database.get_skus_for_seller(seller.seller_id):
+        seller_skus = database.get_skus_for_seller(seller.seller_id)
+        current_dates = {current_time.date(), datetime.now().date()}
+
+        for sku in seller_skus:
             recent_actions = database.get_agent_action_history(sku.sku_id, limit=5)
             if any(
-                action.trigger == "scheduled" and action.action_date == current_time.date()
+                action.trigger == "scheduled" and action.action_date in current_dates
                 for action in recent_actions
             ):
                 continue
@@ -53,6 +56,14 @@ def run_scheduler_tick_now(now: Optional[datetime] = None) -> None:
                     seller.seller_id,
                     sku.sku_id,
                     exc,
+                )
+                continue
+
+            if result.get("notification_suppressed"):
+                logger.info(
+                    "Scheduler price change below threshold, skipping notification for seller_id=%s sku_id=%s",
+                    seller.seller_id,
+                    sku.sku_id,
                 )
                 continue
 

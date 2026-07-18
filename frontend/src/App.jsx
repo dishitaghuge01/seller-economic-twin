@@ -12,6 +12,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState(null);
+  const [showWhatsAppBadge, setShowWhatsAppBadge] = useState(false);
 
   const clearStoredToken = () => {
     localStorage.removeItem("seller_twin_token");
@@ -38,6 +39,12 @@ export default function App() {
       setProfileLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (activeTab === "whatsapp") {
+      setShowWhatsAppBadge(false);
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     const initializeAuth = async () => {
@@ -139,6 +146,13 @@ export default function App() {
   }
 
   const sellerId = sellerProfile?.seller_id || FALLBACK_SELLER_ID;
+  const isDemoSeller = Boolean(sellerProfile?.is_demo_seller);
+
+  const handleDemoNotification = () => {
+    if (activeTab !== "whatsapp") {
+      setShowWhatsAppBadge(true);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -158,17 +172,22 @@ export default function App() {
           >
             Dashboard
           </button>
-          <button
-            onClick={() => setActiveTab("whatsapp")}
-            className={
-              "rounded-full px-4 py-2 text-sm font-medium transition-colors " +
-              (activeTab === "whatsapp"
-                ? "bg-green-600 text-white"
-                : "text-gray-600 hover:bg-gray-100")
-            }
-          >
-            WhatsApp Thread
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setActiveTab("whatsapp")}
+              className={
+                "rounded-full px-4 py-2 text-sm font-medium transition-colors " +
+                (activeTab === "whatsapp"
+                  ? "bg-green-600 text-white"
+                  : "text-gray-600 hover:bg-gray-100")
+              }
+            >
+              WhatsApp Thread
+            </button>
+            {showWhatsAppBadge && (
+              <span className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white" />
+            )}
+          </div>
           <button
             onClick={handleSignOut}
             className="rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
@@ -180,7 +199,7 @@ export default function App() {
 
       <main className="mx-auto max-w-4xl px-4 py-6">
         {activeTab === "seller" ? (
-          <SellerPanel sellerId={sellerId} />
+          <SellerPanel sellerId={sellerId} isDemoSeller={isDemoSeller} onDemoNotification={handleDemoNotification} />
         ) : (
           <WhatsAppPanel sellerId={sellerId} />
         )}

@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
 import uuid
 from datetime import date
 from typing import Any, Dict, List, Optional
@@ -28,6 +29,7 @@ from database import (
     get_last_agent_action,
     get_price_arms,
     get_seller_by_id,
+    get_seller_settings,
     get_sku_by_id,
     insert_agent_action,
     recompute_price_arms,
@@ -39,6 +41,7 @@ from models import AgentAction, PriceArm, Seller, SKU
 from pricing_tool import run_pricing_tool
 
 logger = logging.getLogger(__name__)
+agent_core = sys.modules[__name__]
 
 SARVAM_MODEL = "sarvam-30b"
 GEMINI_MODEL = "gemini-2.0-flash"
@@ -179,6 +182,20 @@ def run_agent_cycle(
     elif sku.current_chosen_price is not None:
         chosen_price = int(sku.current_chosen_price)
 
+    # Threshold-gated notification logic: suppress WhatsApp notification only for
+    # "scheduled" triggers when price change is below threshold. Still generate and
+    # store the message for the dashboard, and always log the action.
+    notification_suppressed = False
+    if trigger == "scheduled" and chosen_price is not None:
+        seller_settings = get_seller_settings(seller_id)
+        if last_action is not None and last_action.chosen_price is not None:
+            old_price = last_action.chosen_price
+            if old_price > 0:
+                fractional_change = abs(chosen_price - old_price) / old_price
+                if fractional_change < seller_settings.price_change_threshold:
+                    notification_suppressed = True
+        # If no prior price exists (new SKU), never suppress - always notify
+
     action = AgentAction(
         action_id=str(uuid.uuid4()),
         sku_id=sku_id,
@@ -203,6 +220,7 @@ def run_agent_cycle(
         "tool_called": tool_called,
         "chosen_price": chosen_price,
         "stockout_severity": stockout_severity,
+        "notification_suppressed": notification_suppressed,
     }
 
 

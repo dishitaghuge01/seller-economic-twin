@@ -159,6 +159,18 @@ CREATE_TABLES_SQL = """
         updated_at               TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
+    -- Demo simulation state: tracks the current day and shock/depletion arcs
+    -- Intentionally outside RLS: this is an internal demo mechanism, not per-seller business data
+    CREATE TABLE IF NOT EXISTS demo_state (
+        seller_id       TEXT PRIMARY KEY REFERENCES sellers(seller_id),
+        current_day     INTEGER NOT NULL DEFAULT 0,
+        max_days        INTEGER NOT NULL DEFAULT 6,
+        shock_sku_id    TEXT,
+        depletion_sku_id TEXT,
+        shock_triggered BOOLEAN NOT NULL DEFAULT FALSE,
+        updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
     -- This table is intentionally outside the RLS model: pairing is handled
     -- entirely in the application layer before a seller has any auth identity.
     CREATE TABLE IF NOT EXISTS pairing_sessions (
@@ -566,17 +578,19 @@ def insert_order(order: Order) -> None:
 
 def get_order_history(sku_id: str, days: int = 30) -> List[Order]:
     """
-    Returns the last `days` days of orders for a SKU, newest first.
+    Returns the orders for the last `days` days for a SKU, newest first.
     This is the primary data source for both statistical tools.
     """
+    if days <= 0:
+        return []
+    cutoff_date = date.today() - timedelta(days=days - 1)
     with get_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute(
                 """SELECT * FROM orders
-                   WHERE sku_id = %s
-                   ORDER BY order_date DESC
-                   LIMIT %s""",
-                (sku_id, days)
+                   WHERE sku_id = %s AND order_date >= %s
+                   ORDER BY order_date DESC""",
+                (sku_id, cutoff_date)
             )
             rows = cur.fetchall()
     return [_row_to_order(r) for r in rows]
@@ -880,6 +894,104 @@ def _row_to_settings(row: Dict[str, Any]) -> SellerSettings:
         notify_on_stockout_risk=bool(row["notify_on_stockout_risk"]),
         price_change_threshold=row["price_change_threshold"],
         updated_at=row["updated_at"]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Query Helper Functions -- Demo State
+# ---------------------------------------------------------------------------
+
+def upsert_demo_state(state: "models.DemoState") -> None:
+    """Insert or update demo state for a seller."""
+    with get_connection() as conn:
+        with get_cursor(conn) as cur:
+            cur.execute(
+                """INSERT INTO demo_state
+                   (seller_id, current_day, max_days, shock_sku_id,
+                    depletion_sku_id, shock_triggered, updated_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s)
+                   ON CONFLICT (seller_id) DO UPDATE SET
+                       current_day=EXCLUDED.current_day,
+                       max_days=EXCLUDED.max_days,
+                       shock_sku_id=EXCLUDED.shock_sku_id,
+                       depletion_sku_id=EXCLUDED.depletion_sku_id,
+                       shock_triggered=EXCLUDED.shock_triggered,
+                       updated_at=EXCLUDED.updated_at""",
+                (state.seller_id, state.current_day, state.max_days,
+                 state.shock_sku_id, state.depletion_sku_id,
+                 state.shock_triggered, datetime.now(timezone.utc))
+            )
+
+
+def get_demo_state(seller_id: str) -> Optional["models.DemoState"]:
+    """Get demo state for a seller, or None if not started."""
+    with get_connection() as conn:
+        with get_cursor(conn) as cur:
+            cur.execute("SELECT * FROM demo_state WHERE seller_id = %s", (seller_id,))
+            row = cur.fetchone()
+    return _row_to_demo_state(row) if row else None
+
+
+def delete_demo_state(seller_id: str) -> None:
+    """Delete demo state for a seller."""
+    with get_connection() as conn:
+        with get_cursor(conn) as cur:
+            cur.execute("DELETE FROM demo_state WHERE seller_id = %s", (seller_id,))
+
+
+def reset_demo_seller_data(seller_id: str) -> None:
+    """
+    Reset all data for a demo seller: delete orders, price_arms, agent_actions,
+    conversations, and re-seed with exact original values from seed_data.py.
+    Also resets SKU stock and price to original seeded values.
+    Finally, deletes any existing demo_state so fresh /demo/start begins clean.
+    """
+    from seed_data import (
+        seed_seller_data,
+        KURTI_SKU_DATA,
+        PALAZZO_SKU_DATA,
+    )
+    
+    with get_connection() as conn:
+        with get_cursor(conn) as cur:
+            # Delete all data for this seller
+            cur.execute("DELETE FROM agent_actions WHERE seller_id = %s", (seller_id,))
+            cur.execute("DELETE FROM conversations WHERE seller_id = %s", (seller_id,))
+            cur.execute("DELETE FROM orders WHERE seller_id = %s", (seller_id,))
+            cur.execute(
+                "DELETE FROM price_arms WHERE sku_id IN (SELECT sku_id FROM skus WHERE seller_id = %s)",
+                (seller_id,)
+            )
+            
+            # Reset SKU stock and price to seeded values
+            cur.execute(
+                "UPDATE skus SET current_stock = %s, current_chosen_price = %s WHERE sku_id = %s AND seller_id = %s",
+                (KURTI_SKU_DATA["current_stock"], KURTI_SKU_DATA["current_chosen_price"],
+                 KURTI_SKU_DATA["sku_id"], seller_id)
+            )
+            cur.execute(
+                "UPDATE skus SET current_stock = %s, current_chosen_price = %s WHERE sku_id = %s AND seller_id = %s",
+                (PALAZZO_SKU_DATA["current_stock"], PALAZZO_SKU_DATA["current_chosen_price"],
+                 PALAZZO_SKU_DATA["sku_id"], seller_id)
+            )
+    
+    # Re-seed the seller's data
+    seed_seller_data(seller_id)
+    
+    # Delete demo state so next /demo/start is clean
+    delete_demo_state(seller_id)
+
+
+def _row_to_demo_state(row: Dict[str, Any]) -> "models.DemoState":
+    from models import DemoState
+    return DemoState(
+        seller_id=row["seller_id"],
+        current_day=row["current_day"],
+        max_days=row["max_days"],
+        shock_sku_id=row["shock_sku_id"],
+        depletion_sku_id=row["depletion_sku_id"],
+        shock_triggered=bool(row["shock_triggered"]),
+        updated_at=_normalize_datetime(row["updated_at"])
     )
 
 
