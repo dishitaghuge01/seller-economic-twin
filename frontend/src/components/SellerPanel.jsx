@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import apiClient from "../apiClient.js";
 import SKUSummaryCards from "./SKUSummaryCards.jsx";
 import PriceExplorationChart from "./PriceExplorationChart.jsx";
@@ -26,6 +26,7 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
   const [newPriceFloor, setNewPriceFloor] = useState(100);
   const [newPriceCeiling, setNewPriceCeiling] = useState(140);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  const chartSectionRef = useRef(null);
 
   const loadSeller = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
@@ -134,11 +135,36 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
     );
   };
 
-  const handleDemoStepCompleted = useCallback(async () => {
+  const handleDemoStepCompleted = useCallback(async (stepResponse) => {
+    const candidateSkus = [stepResponse?.shock_sku, stepResponse?.depletion_sku].filter(Boolean);
+    const notifications = Array.isArray(stepResponse?.notifications) ? stepResponse.notifications : [];
+    const sentNotification = notifications.find((notification) => notification?.sent);
+    const sentMessage = sentNotification
+      ? stepResponse?.agent_messages?.find?.((message) => message?.sku_id === sentNotification?.sku_id) || null
+      : null;
+
+    const matchedSku =
+      candidateSkus.find((sku) => sku?.shock_event_triggered_today) ||
+      (sentNotification
+        ? candidateSkus.find((sku) => sku?.sku_id === sentNotification?.sku_id)
+        : null) ||
+      candidateSkus.find((sku) => sku?.stockout_severity === "urgent") ||
+      candidateSkus.find((sku) => sku?.stockout_severity === "watch");
+
+    if (matchedSku?.sku_id && matchedSku.sku_id !== selectedSkuId) {
+      setSelectedSkuId(matchedSku.sku_id);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      chartSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    if (sentMessage?.seller_message && typeof onDemoNotification === "function") {
+      onDemoNotification(sentMessage.seller_message);
+    }
+
     void loadSeller({ silent: true });
     void refreshHistory({ silent: true });
     setHistoryRefreshKey((value) => value + 1);
-  }, [loadSeller, refreshHistory]);
+  }, [loadSeller, refreshHistory, selectedSkuId, onDemoNotification]);
 
   if (loading && !seller) {
     return (
@@ -252,7 +278,7 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
           {!history ? (
             <div className="h-64 bg-gray-100 rounded-xl animate-pulse" />
           ) : (
-            <div className="space-y-4">
+            <div ref={chartSectionRef} className="space-y-4">
               <PriceExplorationChart
                 skuId={selectedSkuId}
                 priceArms={history.price_arms}

@@ -214,6 +214,28 @@ def test_get_yesterday_order():
     assert latest.order_date == today
 
 
+def test_insert_orders_bulk():
+    _make_seller()
+    _make_sku()
+    today = date.today()
+    orders = [
+        Order(
+            order_id=str(uuid.uuid4()), sku_id="k1", seller_id="s1",
+            order_date=today - timedelta(days=2), units_sold=2,
+            price_charged=410, revenue=820, margin=260
+        ),
+        Order(
+            order_id=str(uuid.uuid4()), sku_id="k1", seller_id="s1",
+            order_date=today - timedelta(days=1), units_sold=3,
+            price_charged=430, revenue=1290, margin=450
+        ),
+    ]
+    database.insert_orders_bulk(orders)
+    history = database.get_order_history("k1", days=30)
+    assert len(history) == 2
+    assert {o.order_id for o in history} == {o.order_id for o in orders}
+
+
 # ---------------------------------------------------------------------------
 # Price Arms
 # ---------------------------------------------------------------------------
@@ -226,6 +248,19 @@ def test_upsert_price_arm_insert():
     arms = database.get_price_arms("k1")
     assert len(arms) == 1
     assert arms[0].price_value == 410
+
+
+def test_insert_price_arms_bulk():
+    _make_seller()
+    _make_sku()
+    arms = [
+        PriceArm(arm_id=str(uuid.uuid4()), sku_id="k1", price_value=370, alpha=3.0, beta_param=5.0, times_chosen=4),
+        PriceArm(arm_id=str(uuid.uuid4()), sku_id="k1", price_value=390, alpha=5.0, beta_param=4.0, times_chosen=6),
+    ]
+    database.insert_price_arms_bulk(arms)
+    stored_arms = database.get_price_arms("k1")
+    assert len(stored_arms) == 2
+    assert {arm.price_value for arm in stored_arms} == {370, 390}
 
 
 def test_upsert_price_arm_update():

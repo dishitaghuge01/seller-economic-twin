@@ -576,6 +576,20 @@ def insert_order(order: Order) -> None:
             )
 
 
+def insert_orders_bulk(orders: List[Order]) -> None:
+    if not orders:
+        return
+    with get_connection() as conn:
+        with get_cursor(conn) as cur:
+            psycopg2.extras.execute_values(
+                cur,
+                """INSERT INTO orders (order_id, sku_id, seller_id, order_date,
+                   units_sold, price_charged, revenue, margin) VALUES %s""",
+                [(o.order_id, o.sku_id, o.seller_id, o.order_date, o.units_sold,
+                  o.price_charged, o.revenue, o.margin) for o in orders]
+            )
+
+
 def get_order_history(sku_id: str, days: int = 30) -> List[Order]:
     """
     Returns the orders for the last `days` days for a SKU, newest first.
@@ -638,6 +652,21 @@ def get_price_arms(sku_id: str, active_only: bool = True) -> List[PriceArm]:
             cur.execute(query, params)
             rows = cur.fetchall()
     return [_row_to_arm(r) for r in rows]
+
+
+def insert_price_arms_bulk(arms: List[PriceArm]) -> None:
+    if not arms:
+        return
+    with get_connection() as conn:
+        with get_cursor(conn) as cur:
+            psycopg2.extras.execute_values(
+                cur,
+                """INSERT INTO price_arms
+                   (arm_id, sku_id, price_value, alpha, beta_param,
+                    times_chosen, is_active, last_updated) VALUES %s""",
+                [(a.arm_id, a.sku_id, a.price_value, a.alpha, a.beta_param,
+                  a.times_chosen, a.is_active, a.last_updated) for a in arms]
+            )
 
 
 def upsert_price_arm(arm: PriceArm) -> None:

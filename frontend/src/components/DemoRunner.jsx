@@ -118,7 +118,6 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
       let activeMaxDays = maxDays;
 
       if (resumeFromDay <= 0) {
-        await apiClient.resetDemo(sellerId);
         const startResponse = await apiClient.startDemo(sellerId);
         activeMaxDays = Number(startResponse?.max_days || 6);
         setMaxDays(activeMaxDays);
@@ -141,7 +140,7 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
           onNotificationSent?.();
         }
 
-        void onStepCompleted?.();
+        void onStepCompleted?.(stepResponse);
 
         currentValue = Number(stepResponse?.day || nextDay);
         if (currentValue >= activeMaxDays) {

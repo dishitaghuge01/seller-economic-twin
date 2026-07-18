@@ -107,6 +107,7 @@ def seed_seller_data(seller_id: str) -> None:
     today = date.today()
     
     # --- Order history: Blue Floral Kurti ---
+    kurti_orders = []
     for i, price in enumerate(KURTI_PRICES_30_DAYS):
         day = today - timedelta(days=30 - i)
         units = int(rng.poisson(1.4))
@@ -122,9 +123,11 @@ def seed_seller_data(seller_id: str) -> None:
             revenue=rev,
             margin=margin
         )
-        database.insert_order(order)
+        kurti_orders.append(order)
+    database.insert_orders_bulk(kurti_orders)
 
     # --- Order history: Cotton Palazzo Set ---
+    palazzo_orders = []
     for i, price in enumerate(PALAZZO_PRICES_30_DAYS):
         day = today - timedelta(days=30 - i)
         units = int(rng.poisson(2.0))
@@ -140,9 +143,11 @@ def seed_seller_data(seller_id: str) -> None:
             revenue=rev,
             margin=margin
         )
-        database.insert_order(order)
+        palazzo_orders.append(order)
+    database.insert_orders_bulk(palazzo_orders)
 
     # --- Price arms: Blue Floral Kurti ---
+    kurti_arms = []
     for price_val, alpha, beta_p, times in KURTI_ARMS:
         arm = PriceArm(
             arm_id=str(uuid.uuid4()),
@@ -154,9 +159,11 @@ def seed_seller_data(seller_id: str) -> None:
             is_active=True,
             last_updated=datetime.now(timezone.utc)
         )
-        database.upsert_price_arm(arm)
+        kurti_arms.append(arm)
+    database.insert_price_arms_bulk(kurti_arms)
 
     # --- Price arms: Cotton Palazzo Set ---
+    palazzo_arms = []
     for price_val, alpha, beta_p, times in PALAZZO_ARMS:
         arm = PriceArm(
             arm_id=str(uuid.uuid4()),
@@ -168,7 +175,8 @@ def seed_seller_data(seller_id: str) -> None:
             is_active=True,
             last_updated=datetime.now(timezone.utc)
         )
-        database.upsert_price_arm(arm)
+        palazzo_arms.append(arm)
+    database.insert_price_arms_bulk(palazzo_arms)
 
     # --- Seller settings ---
     settings = SellerSettings(

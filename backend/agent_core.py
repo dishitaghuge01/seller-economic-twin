@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import sys
+import time
 import uuid
 from datetime import date
 from typing import Any, Dict, List, Optional
@@ -271,7 +272,7 @@ def _call_provider(provider_name: str, system_prompt: str, user_prompt: str) -> 
     if not api_key:
         raise AgentCoreError(f"{provider_name} API key is not configured")
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=15.0, max_retries=0)
     request_payload = {
         "model": model,
         "temperature": 0.3,
@@ -288,7 +289,10 @@ def _call_provider(provider_name: str, system_prompt: str, user_prompt: str) -> 
         print("LLM request payload", provider_name, request_payload)
         logger.info("LLM request payload for %s: %s", provider_name, request_payload)
 
+    start_time = time.perf_counter()
     response = client.chat.completions.create(**request_payload)
+    elapsed = time.perf_counter() - start_time
+    logger.info(f"{provider_name} call took {elapsed:.2f}s")
     return _extract_text_from_response(response)
 
 

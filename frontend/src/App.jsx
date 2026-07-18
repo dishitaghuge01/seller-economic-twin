@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import apiClient from "./apiClient.js";
 import SellerPanel from "./components/SellerPanel.jsx";
 import WhatsAppPanel from "./components/WhatsAppPanel.jsx";
+import WhatsAppToast from "./components/WhatsAppToast.jsx";
 import LoginScreen from "./components/LoginScreen.jsx";
 
 const FALLBACK_SELLER_ID = import.meta.env.VITE_SELLER_ID || "riya_sharma";
@@ -13,6 +14,7 @@ export default function App() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState(null);
   const [showWhatsAppBadge, setShowWhatsAppBadge] = useState(false);
+  const [toastMessage, setToastMessage] = useState(null);
 
   const clearStoredToken = () => {
     localStorage.removeItem("seller_twin_token");
@@ -148,9 +150,10 @@ export default function App() {
   const sellerId = sellerProfile?.seller_id || FALLBACK_SELLER_ID;
   const isDemoSeller = Boolean(sellerProfile?.is_demo_seller);
 
-  const handleDemoNotification = () => {
+  const handleDemoNotification = (messageText) => {
     if (activeTab !== "whatsapp") {
       setShowWhatsAppBadge(true);
+      setToastMessage(messageText || "New WhatsApp notification");
     }
   };
 
@@ -196,6 +199,18 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {toastMessage && (
+        <WhatsAppToast
+          message={toastMessage}
+          senderName="Seller Economic Twin Agent"
+          onDismiss={() => setToastMessage(null)}
+          onClick={() => {
+            setActiveTab("whatsapp");
+            setToastMessage(null);
+          }}
+        />
+      )}
 
       <main className="mx-auto max-w-4xl px-4 py-6">
         {activeTab === "seller" ? (
