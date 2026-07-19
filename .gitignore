@@ -26,3 +26,4 @@ dist/
 # OS / editor
 .DS_Store
 .vscode/
+frontend/_new_ui_reference/

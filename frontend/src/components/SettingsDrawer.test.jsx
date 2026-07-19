@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import SettingsDrawer from "./SettingsDrawer.jsx";
+import { SettingsDrawer } from "./SettingsDrawer.jsx";
 import apiClient from "../apiClient.js";
 
 describe("SettingsDrawer", () => {

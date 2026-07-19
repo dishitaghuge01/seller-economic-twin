@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import AgentReasoningLog from "./AgentReasoningLog.jsx";
+import { AgentReasoningLog } from "./AgentReasoningLog.jsx";
 
 describe("AgentReasoningLog", () => {
   test("test_reasoning_log_entries", () => {

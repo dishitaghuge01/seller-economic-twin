@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import PriceExplorationChart from "./PriceExplorationChart.jsx";
+import { PriceExplorationChart } from "./PriceExplorationChart.jsx";
 
 vi.mock("recharts", async () => {
   const actual = await vi.importActual("recharts");

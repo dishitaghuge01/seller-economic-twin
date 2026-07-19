@@ -1,21 +1,26 @@
 import { useEffect, useState } from "react";
+import { LogOut } from "lucide-react";
 import apiClient from "./apiClient.js";
 import SellerPanel from "./components/SellerPanel.jsx";
 import WhatsAppPanel from "./components/WhatsAppPanel.jsx";
-import WhatsAppToast from "./components/WhatsAppToast.jsx";
+import { WhatsAppToast } from "./components/WhatsAppToast.jsx";
 import LoginScreen from "./components/LoginScreen.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
+import { Wordmark } from "./components/Wordmark.jsx";
+import { LanguageToggle } from "./components/LanguageToggle.jsx";
+import { useLang } from "./lib/i18n.jsx";
 
 const FALLBACK_SELLER_ID = import.meta.env.VITE_SELLER_ID || "riya_sharma";
 
 export default function App() {
+  const { lang, setLang, t } = useLang();
   const [activeTab, setActiveTab] = useState("seller");
   const [sellerProfile, setSellerProfile] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState(null);
   const [showWhatsAppBadge, setShowWhatsAppBadge] = useState(false);
-  const [toastMessage, setToastMessage] = useState(null);
+  const [toast, setToast] = useState(null);
 
   const clearStoredToken = () => {
     localStorage.removeItem("seller_twin_token");
@@ -92,6 +97,19 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!sellerProfile) return;
+    const stored = window.localStorage.getItem("uday_ui_lang");
+    if (stored === "hi" || stored === "en") return;
+    const sellerId = sellerProfile?.seller_id || FALLBACK_SELLER_ID;
+    apiClient.getSeller(sellerId)
+      .then((res) => {
+        const pref = res?.seller?.language_preference;
+        if (pref === "en" || pref === "hi") setLang(pref);
+      })
+      .catch(() => {});
+  }, [sellerProfile, setLang]);
+
   const handleSignOut = () => {
     clearStoredToken();
     setSellerProfile(null);
@@ -107,11 +125,20 @@ export default function App() {
     setAuthReady(true);
   };
 
+  const handleDemoNotification = (messageText) => {
+    if (activeTab !== "whatsapp") {
+      setShowWhatsAppBadge(true);
+      setToast({ message: messageText || "New WhatsApp notification", senderName: "उदय एजेंट" });
+    }
+  };
+
   if (!authReady) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-        <div className="rounded-2xl border border-gray-200 bg-white px-6 py-4 text-sm font-medium text-gray-700 shadow-sm">
-          Checking your session...
+      <div className={`min-h-screen bg-background ${lang === "hi" ? "font-devanagari" : ""}`}>
+        <div className="flex min-h-screen items-center justify-center px-4 py-10">
+          <div className="rounded-2xl border border-border bg-card px-6 py-4 text-sm font-medium text-muted-foreground shadow-sm">
+            {t("dash.loadingShop")}
+          </div>
         </div>
       </div>
     );
@@ -123,9 +150,11 @@ export default function App() {
 
   if (profileLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-        <div className="rounded-2xl border border-gray-200 bg-white px-6 py-4 text-sm font-medium text-gray-700 shadow-sm">
-          Loading your seller profile...
+      <div className={`min-h-screen bg-background ${lang === "hi" ? "font-devanagari" : ""}`}>
+        <div className="flex min-h-screen items-center justify-center px-4 py-10">
+          <div className="rounded-2xl border border-border bg-card px-6 py-4 text-sm font-medium text-muted-foreground shadow-sm">
+            Loading your seller profile...
+          </div>
         </div>
       </div>
     );
@@ -133,16 +162,15 @@ export default function App() {
 
   if (profileError) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-        <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 text-center shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900">Account setup required</h2>
-          <p className="mt-2 text-sm text-gray-600">{profileError}</p>
-          <button
-            onClick={handleSignOut}
-            className="mt-5 rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
-          >
-            Log out
-          </button>
+      <div className={`min-h-screen bg-background ${lang === "hi" ? "font-devanagari" : ""}`}>
+        <div className="flex min-h-screen items-center justify-center px-4 py-10">
+          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 text-center shadow-sm">
+            <h2 className="font-display text-lg font-semibold">Account setup required</h2>
+            <p className="mt-2 text-sm text-muted-foreground">{profileError}</p>
+            <button onClick={handleSignOut} className="mt-5 rounded-lg bg-jamuni px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90">
+              {t("nav.logout")}
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -151,79 +179,63 @@ export default function App() {
   const sellerId = sellerProfile?.seller_id || FALLBACK_SELLER_ID;
   const isDemoSeller = Boolean(sellerProfile?.is_demo_seller);
 
-  const handleDemoNotification = (messageText) => {
-    if (activeTab !== "whatsapp") {
-      setShowWhatsAppBadge(true);
-      setToastMessage(messageText || "New WhatsApp notification");
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="sticky top-0 z-30 border-b border-gray-200 bg-white shadow-sm">
-        <div className="mx-auto flex max-w-4xl items-center gap-2 px-4 py-3">
-          <h1 className="mr-auto text-sm font-semibold text-gray-800">
-            Seller Economic Twin
-          </h1>
-          <button
-            onClick={() => setActiveTab("seller")}
-            className={
-              "rounded-full px-4 py-2 text-sm font-medium transition-colors " +
-              (activeTab === "seller"
-                ? "bg-gray-900 text-white"
-                : "text-gray-600 hover:bg-gray-100")
-            }
-          >
-            Dashboard
-          </button>
-          <div className="relative">
-            <button
-              onClick={() => setActiveTab("whatsapp")}
-              className={
-                "rounded-full px-4 py-2 text-sm font-medium transition-colors " +
-                (activeTab === "whatsapp"
-                  ? "bg-green-600 text-white"
-                  : "text-gray-600 hover:bg-gray-100")
-              }
-            >
-              WhatsApp Thread
-            </button>
-            {showWhatsAppBadge && (
-              <span className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white" />
-            )}
+    <div className={`min-h-screen bg-background ${lang === "hi" ? "font-devanagari" : ""}`}>
+      <header className="sticky top-0 z-30 border-b border-border bg-card/90 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-3 py-3 sm:gap-3 sm:px-4">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-4">
+            <Wordmark size="md" />
+            <nav className="flex items-center gap-1 rounded-full border border-border bg-background p-0.5">
+              <button
+                onClick={() => setActiveTab("seller")}
+                className={`rounded-full px-2.5 py-1.5 text-xs font-medium transition sm:px-3 ${activeTab === "seller" ? "bg-jamuni text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                {t("nav.dashboard")}
+              </button>
+              <button
+                onClick={() => {
+                  setActiveTab("whatsapp");
+                  setShowWhatsAppBadge(false);
+                }}
+                className={`relative rounded-full px-2.5 py-1.5 text-xs font-medium transition sm:px-3 ${activeTab === "whatsapp" ? "bg-jamuni text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                <span className="sm:hidden">{t("nav.whatsapp")}</span>
+                <span className="hidden sm:inline">{t("nav.whatsappLong")}</span>
+                {showWhatsAppBadge && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-urgent ring-2 ring-card" />}
+              </button>
+            </nav>
           </div>
-          <button
-            onClick={handleSignOut}
-            className="rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
-          >
-            Log out
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <LanguageToggle />
+            <button onClick={handleSignOut} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-muted sm:px-3">
+              <LogOut className="h-3.5 w-3.5" /> <span className="hidden sm:inline">{t("nav.logout")}</span>
+            </button>
+          </div>
         </div>
       </header>
 
-      {toastMessage && (
+      {activeTab === "seller" ? (
+        <ErrorBoundary>
+          <SellerPanel sellerId={sellerId} isDemoSeller={isDemoSeller} onDemoNotification={handleDemoNotification} />
+        </ErrorBoundary>
+      ) : (
+        <ErrorBoundary>
+          <WhatsAppPanel sellerId={sellerId} />
+        </ErrorBoundary>
+      )}
+
+      {toast && (
         <WhatsAppToast
-          message={toastMessage}
-          senderName="Seller Economic Twin Agent"
-          onDismiss={() => setToastMessage(null)}
+          senderName={toast.senderName}
+          message={toast.message}
+          onDismiss={() => setToast(null)}
           onClick={() => {
             setActiveTab("whatsapp");
-            setToastMessage(null);
+            setShowWhatsAppBadge(false);
+            setToast(null);
           }}
         />
       )}
-
-      <main className="mx-auto max-w-4xl px-4 py-6">
-        {activeTab === "seller" ? (
-          <ErrorBoundary>
-            <SellerPanel sellerId={sellerId} isDemoSeller={isDemoSeller} onDemoNotification={handleDemoNotification} />
-          </ErrorBoundary>
-        ) : (
-          <ErrorBoundary>
-            <WhatsAppPanel sellerId={sellerId} />
-          </ErrorBoundary>
-        )}
-      </main>
     </div>
   );
 }

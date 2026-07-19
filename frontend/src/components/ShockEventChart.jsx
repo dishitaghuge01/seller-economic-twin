@@ -1,80 +1,47 @@
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceLine,
-  CartesianGrid,
-} from "recharts";
+import { useMemo } from "react";
+import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, ReferenceLine, Tooltip } from "recharts";
+import { useT } from "@/lib/i18n";
 
-export default function ShockEventChart({ orderHistory }) {
-  let shockDay = null;
-  let maxDropRatio = 0;
-  for (let i = 3; i < orderHistory.length; i++) {
-    const prevAvg =
-      (orderHistory[i - 1].units_sold +
-        orderHistory[i - 2].units_sold +
-        orderHistory[i - 3].units_sold) /
-      3;
-    if (prevAvg <= 0) continue;
-    const drop = (prevAvg - orderHistory[i].units_sold) / prevAvg;
-    if (drop > maxDropRatio) {
-      maxDropRatio = drop;
-      if (drop > 0.4) shockDay = orderHistory[i].date;
+function detectShift(history) {
+  for (let i = 3; i < history.length; i++) {
+    const trailing = (history[i - 1].units_sold + history[i - 2].units_sold + history[i - 3].units_sold) / 3;
+    if (trailing > 0 && history[i].units_sold < trailing * 0.6) {
+      return { date: history[i].date, index: i, trailing };
     }
   }
+  return null;
+}
 
-  const data = orderHistory.map((r, i) => ({
-    day: i + 1,
-    date: r.date,
-    units_sold: r.units_sold,
-  }));
-
-  const shockIdx = shockDay ? data.find((d) => d.date === shockDay)?.day : null;
+export function ShockEventChart({ orderHistory }) {
+  const t = useT();
+  const shift = useMemo(() => detectShift(orderHistory || []), [orderHistory]);
+  const data = (orderHistory || []).map((r) => ({ ...r, dayLabel: r.date.slice(5) }));
 
   return (
-    <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-      <h3 className="font-semibold text-gray-900 mb-1">Sales Trend (30 days)</h3>
-      <p className="text-xs text-gray-500 mb-4">Daily units sold</p>
-
-      <div className="h-56 w-full min-w-0">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 24, right: 10, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-            <XAxis
-              dataKey="day"
-              tick={{ fontSize: 11 }}
-              ticks={[1, 5, 10, 15, 20, 25, 30]}
-              tickFormatter={(v) => `D${v}`}
-            />
-            <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-            <Tooltip labelFormatter={(l) => `Day ${l}`} />
-            <Line
-              type="monotone"
-              dataKey="units_sold"
-              stroke="#374151"
-              strokeWidth={2}
-              dot={{ r: 3 }}
-            />
-            {shockIdx && (
+    <div className="space-y-3">
+      {shift && (
+        <div className="rounded-lg border border-watch/40 bg-watch-soft px-3 py-2 text-xs text-watch">
+          {t("shock.detected", { date: shift.date })}
+        </div>
+      )}
+      <div className="h-52 w-full">
+        <ResponsiveContainer>
+          <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+            <XAxis dataKey="dayLabel" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} minTickGap={16} />
+            <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+            <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid var(--border)", fontSize: 12 }} formatter={(v) => [v, t("shock.units")]} labelFormatter={(l) => `${t("shock.date")} ${l}`} />
+            {shift && (
               <ReferenceLine
-                x={shockIdx}
-                stroke="#dc2626"
-                strokeDasharray="4 4"
-                label={{ value: "Market shift detected", position: "top", fontSize: 12, fill: "#dc2626" }}
+                x={data[shift.index].dayLabel}
+                stroke="var(--watch)"
+                strokeDasharray="4 3"
+                label={{ value: t("shock.shiftLabel"), fontSize: 10, fill: "var(--watch)", position: "top" }}
               />
             )}
+            <Line type="monotone" dataKey="units_sold" stroke="var(--jamuni)" strokeWidth={2} dot={{ r: 2, fill: "var(--jamuni)" }} activeDot={{ r: 4 }} />
           </LineChart>
         </ResponsiveContainer>
       </div>
-
-      {!shockIdx && (
-        <p className="mt-3 text-xs text-gray-500">
-          No significant market shock detected in the last 30 days.
-        </p>
-      )}
     </div>
   );
 }

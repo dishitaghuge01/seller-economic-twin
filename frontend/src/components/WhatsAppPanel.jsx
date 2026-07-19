@@ -1,55 +1,78 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import apiClient from "../apiClient.js";
-import MessageBubble from "./MessageBubble.jsx";
-import ComposeBar from "./ComposeBar.jsx";
-import TypingIndicator from "./TypingIndicator.jsx";
+import { MessageBubble } from "./MessageBubble.jsx";
+import { ComposeBar } from "./ComposeBar.jsx";
+import { TypingIndicator } from "./TypingIndicator.jsx";
+import { LoadingSpinner } from "./LoadingSpinner.jsx";
+import { useT } from "../lib/i18n.jsx";
 
 export default function WhatsAppPanel({ sellerId }) {
+  const t = useT();
   const [messages, setMessages] = useState([]);
   const [showReasoning, setShowReasoning] = useState(false);
   const [sending, setSending] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [actionsBySummary, setActionsBySummary] = useState({});
   const initialLoadRef = useRef(true);
   const scrollRef = useRef(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = () =>
-      apiClient.getConversations(sellerId).then((d) => {
-        if (cancelled) return;
-        if (initialLoadRef.current) {
-          initialLoadRef.current = false;
-          setInitialLoading(false);
+  const load = useCallback(async () => {
+    try {
+      const [conversationsResponse, sellerResponse] = await Promise.all([
+        apiClient.getConversations(sellerId),
+        apiClient.getSeller(sellerId),
+      ]);
+
+      const map = {};
+      for (const sku of sellerResponse?.skus || []) {
+        const history = await apiClient.getSkuHistory(sellerId, sku.sku_id);
+        for (const action of history?.agent_actions || []) {
+          if (action?.seller_message) {
+            map[action.seller_message] = action;
+          }
         }
-        setMessages((prev) => {
-          // merge, keep any optimistic messages not yet on server
-          const ids = new Set(d.messages.map((m) => m.message_id));
-          const extras = prev.filter((m) => !ids.has(m.message_id));
-          return [...d.messages, ...extras];
-        });
+      }
+      setActionsBySummary(map);
+
+      if (initialLoadRef.current) {
+        initialLoadRef.current = false;
+        setInitialLoading(false);
+      }
+
+      setMessages((prev) => {
+        const ids = new Set((conversationsResponse?.messages || []).map((m) => m.message_id));
+        const extras = prev.filter((m) => !ids.has(m.message_id));
+        return [...(conversationsResponse?.messages || []), ...extras];
       });
-    load();
-    const t = setInterval(load, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-    };
+    } catch (error) {
+      if (initialLoadRef.current) {
+        initialLoadRef.current = false;
+        setInitialLoading(false);
+      }
+    }
   }, [sellerId]);
+
+  useEffect(() => {
+    void load();
+    const timer = window.setInterval(() => {
+      void load();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [load]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages.length]);
+  }, [messages.length, sending]);
 
   const handleSend = async (text) => {
     if (sending) return;
-    const now = new Date().toISOString();
     const inbound = {
       message_id: `local_${Date.now()}`,
       direction: "inbound",
       message_body: text,
-      created_at: now,
+      created_at: new Date().toISOString(),
     };
     setMessages((m) => [...m, inbound]);
     setSending(true);
@@ -67,67 +90,58 @@ export default function WhatsAppPanel({ sellerId }) {
         },
       };
       setMessages((m) => [...m, outbound]);
+      setActionsBySummary((prev) => ({
+        ...prev,
+        [res.response_text]: {
+          action_id: `live_${Date.now()}`,
+          action_summary: res.action_summary,
+          reasoning_trace: res.reasoning_trace,
+        },
+      }));
     } finally {
       setSending(false);
     }
   };
 
+  if (initialLoading) {
+    return <LoadingSpinner messages={[t("wa.loading")]} heightClass="h-[70vh]" />;
+  }
+
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-[calc(100vh-140px)]">
-      <div className="bg-green-600 text-white px-4 py-3 flex items-center gap-3">
-        <div className="h-10 w-10 rounded-full bg-white/20 flex items-center justify-center font-semibold">
-          A
-        </div>
-        <div className="flex-1">
-          <div className="font-semibold text-sm">Seller Economic Twin Agent</div>
-          <div className="text-xs opacity-90 flex items-center gap-1">
-            <span className="h-1.5 w-1.5 rounded-full bg-green-300 inline-block" />
-            Online
+    <div className="mx-auto flex h-[calc(100vh-64px)] max-w-2xl flex-col overflow-hidden border-x border-border bg-background">
+      <div className="flex items-center justify-between gap-3 border-b border-border bg-whatsapp px-4 py-3 text-white">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15">
+            <span className="font-devanagari-display text-lg" style={{ color: "var(--aam)" }}>उ</span>
+          </div>
+          <div>
+            <p className="text-sm font-semibold">
+              <span className="font-devanagari-display" style={{ color: "var(--aam)" }}>उदय</span>{" "}
+              <span className="text-white/90">{t("wa.agentSuffix")}</span>
+            </p>
+            <p className="text-[11px] text-white/70">{t("wa.online")}</p>
           </div>
         </div>
-        <label className="text-xs flex items-center gap-1 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showReasoning}
-            onChange={(e) => setShowReasoning(e.target.checked)}
-          />
-          Show reasoning
+        <label className="flex cursor-pointer items-center gap-2 text-xs">
+          <input type="checkbox" checked={showReasoning} onChange={(e) => setShowReasoning(e.target.checked)} className="accent-white" />
+          {t("wa.showReasoning")}
         </label>
       </div>
 
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto px-3 py-3"
-        style={{
-          backgroundColor: "#efeae2",
-          backgroundImage:
-            "radial-gradient(circle at 20% 20%, rgba(0,0,0,0.03) 1px, transparent 1px)",
-          backgroundSize: "20px 20px",
-        }}
-      >
-        {initialLoading ? (
-          <>
-            <div className="flex justify-end mb-2">
-              <div className="w-40 h-10 rounded-2xl rounded-br-sm bg-[#dcf8c6]" />
-            </div>
-            <div className="flex justify-start mb-2">
-              <div className="w-52 h-12 rounded-2xl rounded-bl-sm bg-white" />
-            </div>
-            <div className="flex justify-end mb-2">
-              <div className="w-36 h-10 rounded-2xl rounded-br-sm bg-[#dcf8c6]" />
-            </div>
-          </>
-        ) : (
-          messages.map((m) => (
-            <MessageBubble
-              key={m.message_id}
-              message={m}
-              showReasoning={showReasoning}
-              relatedAction={m._related_action}
-            />
-          ))
+      <div ref={scrollRef} className="whatsapp-wallpaper flex-1 space-y-2 overflow-y-auto px-3 py-3">
+        {messages.map((m) => (
+          <MessageBubble
+            key={m.message_id}
+            message={m}
+            showReasoning={showReasoning}
+            relatedAction={actionsBySummary[m.message_body]}
+          />
+        ))}
+        {sending && (
+          <div className="pl-1">
+            <TypingIndicator />
+          </div>
         )}
-        {sending && <TypingIndicator />}
       </div>
 
       <ComposeBar onSend={handleSend} isLoading={sending} />

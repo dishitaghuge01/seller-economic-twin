@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import MessageBubble from "./MessageBubble.jsx";
+import { MessageBubble } from "./MessageBubble.jsx";
 
 describe("MessageBubble", () => {
   test("test_outbound_message_left_aligned", () => {

@@ -94,13 +94,69 @@ const MOCK_CONVERSATIONS = [
   },
 ];
 
+export const startPairing = async ({ phone, name }) => {
+  if (typeof globalThis.fetch === "function") {
+    const response = await globalThis.fetch("/mock/start-pairing", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ phone, name }),
+    });
+    if (!response?.ok) {
+      throw new Error("Unable to start pairing");
+    }
+    return response.json ? await response.json() : { status: "pending", wa_link: "https://wa.me/14155238886" };
+  }
+
+  await delay(300);
+  return {
+    status: "pending",
+    wa_link: "https://wa.me/14155238886",
+  };
+};
+
+export const getPairingStatus = async (phone) => {
+  if (typeof globalThis.fetch === "function") {
+    const response = await globalThis.fetch("/mock/pairing-status", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ phone }),
+    });
+    if (!response?.ok) {
+      throw new Error("Unable to fetch pairing status");
+    }
+    return response.json ? await response.json() : { status: "pending" };
+  }
+
+  await delay(200);
+  return { status: "pending" };
+};
+
+export const demoLogin = async () => {
+  if (typeof globalThis.fetch === "function") {
+    const response = await globalThis.fetch("/mock/demo-login");
+    if (!response?.ok) {
+      throw new Error("Unable to log in demo user");
+    }
+    return response.json ? await response.json() : {
+      token: "mock-demo-token",
+      seller_name: "Riya Sharma",
+    };
+  }
+
+  await delay(250);
+  return {
+    token: "mock-demo-token",
+    seller_name: "Riya Sharma",
+  };
+};
+
 export const getSeller = async (sellerId) => {
-  await delay(400);
+  await delay(50);
   return { seller: MOCK_SELLER, skus: MOCK_SKUS };
 };
 
 export const getSkuHistory = async (sellerId, skuId) => {
-  await delay(600);
+  await delay(50);
   return {
     order_history: generateMockOrderHistory(skuId),
     price_arms: MOCK_PRICE_ARMS[skuId] || [],
@@ -193,7 +249,7 @@ export const createSku = async (sellerId, skuPayload) => {
 };
 
 export const getConversations = async (sellerId) => {
-  await delay(300);
+  await delay(50);
   return { messages: MOCK_CONVERSATIONS };
 };
 

@@ -1,4 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { Phone, MessageCircle, RotateCw } from "lucide-react";
+import apiClient from "../apiClient.js";
+import { Wordmark } from "./Wordmark.jsx";
+import { LanguageToggle } from "./LanguageToggle.jsx";
+import { useT, useLang } from "../lib/i18n.jsx";
 
 function normalizePhone(value) {
   const trimmed = value.trim();
@@ -8,128 +13,100 @@ function normalizePhone(value) {
   return trimmed;
 }
 
-function getApiBaseUrl() {
-  return import.meta.env.VITE_API_URL || "http://localhost:8000";
-}
-
 export default function LoginScreen({ onLoginSuccess }) {
+  const t = useT();
+  const { lang } = useLang();
+  const [step, setStep] = useState(1);
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [pairing, setPairing] = useState(null);
+  const [pollFailures, setPollFailures] = useState(0);
   const [error, setError] = useState("");
-  const [statusMessage, setStatusMessage] = useState("");
-  const [waLink, setWaLink] = useState("");
-  const [isPolling, setIsPolling] = useState(false);
-  const [pollFailureCount, setPollFailureCount] = useState(0);
-  const [step, setStep] = useState("phone");
   const [demoLoading, setDemoLoading] = useState(false);
   const [demoMessage, setDemoMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [isPolling, setIsPolling] = useState(false);
 
-  const resetToPhoneStep = useCallback(() => {
-    setStep("phone");
-    setLoading(false);
+  const resetToPhoneStep = () => {
+    setStep(1);
+    setPairing(null);
+    setPollFailures(0);
     setError("");
-    setStatusMessage("");
-    setWaLink("");
+    setLoading(false);
     setIsPolling(false);
-    setPollFailureCount(0);
-  }, []);
-
-  const checkPairingStatus = useCallback(async (phoneValue = phone) => {
-    console.log("checkPairingStatus", phoneValue, isPolling);
-    const normalizedPhone = normalizePhone(phoneValue);
-    if (!normalizedPhone) return;
-
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/auth/pairing-status?phone_number=${encodeURIComponent(normalizedPhone)}`);
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error("We couldn't check the confirmation status right now.");
-      }
-
-      if (data.status === "complete") {
-        setIsPolling(false);
-        setStatusMessage("");
-        setError("");
-        setPollFailureCount(0);
-        onLoginSuccess?.(data.token);
-        return;
-      }
-
-      if (data.status === "expired") {
-        setIsPolling(false);
-        setStep("expired");
-        setStatusMessage("");
-        setPollFailureCount(0);
-        return;
-      }
-
-      setPollFailureCount(0);
-      setStatusMessage("Waiting for confirmation on WhatsApp…");
-      window.setTimeout(() => {
-        void checkPairingStatus(normalizedPhone);
-      }, 3000);
-    } catch (pollError) {
-      const nextFailureCount = pollFailureCount + 1;
-      setPollFailureCount(nextFailureCount);
-      if (nextFailureCount >= 3) {
-        setIsPolling(false);
-        setError(pollError.message || "We couldn't confirm the login right now. Please try again.");
-      } else {
-        setError("We couldn't confirm the login right now. We'll keep trying for a moment.");
-      }
-    }
-  }, [onLoginSuccess, phone, pollFailureCount]);
+  };
 
   useEffect(() => {
-    if (!isPolling) return undefined;
+    if (step !== 2 || !isPolling) return undefined;
 
-    void checkPairingStatus(phone);
-    return undefined;
-  }, [checkPairingStatus, isPolling, phone]);
+    const poll = async () => {
+      try {
+        const normalizedPhone = normalizePhone(phone);
+        const response = await apiClient.getPairingStatus(normalizedPhone);
+        if (response.status === "complete") {
+          setIsPolling(false);
+          setError("");
+          setPollFailures(0);
+          localStorage.setItem("seller_twin_token", response.token);
+          onLoginSuccess?.(response.token);
+          return;
+        }
 
-  const handleStartPairing = async (event) => {
-    event.preventDefault();
+        if (response.status === "expired") {
+          setIsPolling(false);
+          setStep(3);
+          setError("This took too long. Please try again.");
+          setPollFailures(0);
+          return;
+        }
+
+        setPollFailures((count) => count + 1);
+        if (pollFailures >= 2) {
+          setError("We couldn't confirm the login right now. We'll keep trying for a moment.");
+        }
+      } catch (pollError) {
+        const nextFailures = pollFailures + 1;
+        setPollFailures(nextFailures);
+        if (nextFailures >= 3) {
+          setIsPolling(false);
+          setStep(3);
+          setError(pollError.message || "We couldn't confirm the login right now. Please try again.");
+        } else {
+          setError("We couldn't confirm the login right now. We'll keep trying for a moment.");
+        }
+      }
+    };
+
+    const timer = window.setTimeout(() => {
+      void poll();
+    }, 3000);
+
+    return () => window.clearTimeout(timer);
+  }, [isPolling, onLoginSuccess, phone, pollFailures, step]);
+
+  const startPairing = async (event) => {
+    event?.preventDefault();
     const normalizedPhone = normalizePhone(phone);
 
     if (!normalizedPhone) {
-      setError("Enter a phone number to continue.");
+      setError(t("login.phoneRequired"));
       return;
     }
 
-    setLoading(true);
     setError("");
-    setStatusMessage("");
-    setWaLink("");
-    setPollFailureCount(0);
-    setStep("waiting");
+    setLoading(true);
+    setPollFailures(0);
+    setStep(2);
     setIsPolling(true);
-    setStatusMessage("Waiting for confirmation on WhatsApp…");
+    setPairing({ wa_link: "", status: "pending" });
 
     try {
-      const payload = { phone_number: normalizedPhone };
-      const trimmedName = name.trim();
-      if (trimmedName) {
-        payload.seller_name = trimmedName;
-      }
-
-      const response = await fetch(`${getApiBaseUrl()}/auth/start-pairing`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error("We couldn't start the WhatsApp login flow. Please try again.");
-      }
-
-      setWaLink(data.wa_link || "");
+      const pairingResponse = await apiClient.startPairing({ phone: normalizedPhone, name: name.trim() || undefined });
+      setPairing(pairingResponse || { wa_link: "", status: "pending" });
     } catch (startError) {
       setError(startError.message || "We couldn't start the WhatsApp login flow. Please try again.");
+      setStep(1);
       setIsPolling(false);
-      setStep("phone");
     } finally {
       setLoading(false);
     }
@@ -137,29 +114,28 @@ export default function LoginScreen({ onLoginSuccess }) {
 
   const handleRetry = async () => {
     setError("");
-    setPollFailureCount(0);
+    setPollFailures(0);
     setIsPolling(true);
-    await checkPairingStatus();
+    setStep(2);
+    try {
+      const normalizedPhone = normalizePhone(phone);
+      const pairingResponse = await apiClient.startPairing({ phone: normalizedPhone, name: name.trim() || undefined });
+      setPairing(pairingResponse);
+    } catch (retryError) {
+      setError(retryError.message || "We couldn't start the WhatsApp login flow. Please try again.");
+      setStep(3);
+      setIsPolling(false);
+    }
   };
 
-  const handleDemoLogin = async () => {
+  const demoLogin = async () => {
     setDemoLoading(true);
     setDemoMessage("");
     setError("");
 
     try {
-      const response = await fetch(`${getApiBaseUrl()}/auth/demo-login`);
-      const data = await response.json();
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          setDemoMessage("Demo login is not available in this deployment.");
-          return;
-        }
-        throw new Error(data.detail || "We couldn't start the demo login flow.");
-      }
-
-      onLoginSuccess?.(data.token);
+      const response = await apiClient.demoLogin();
+      onLoginSuccess?.(response.token);
     } catch (demoError) {
       setDemoMessage(demoError.message || "We couldn't start the demo login flow.");
     } finally {
@@ -168,139 +144,120 @@ export default function LoginScreen({ onLoginSuccess }) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-8">
-      <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gray-900 text-sm font-semibold text-white">
-            S
-          </div>
-          <div>
-            <p className="text-lg font-semibold text-gray-900">Seller Economic Twin</p>
-            <p className="text-sm text-gray-500">Sign in with WhatsApp</p>
-          </div>
+    <div className={`bazaar-texture flex min-h-screen items-center justify-center px-4 py-10 ${lang === "hi" ? "font-devanagari" : ""}`}>
+      <div className="w-full max-w-md">
+        <div className="mb-4 flex justify-end">
+          <LanguageToggle />
+        </div>
+        <div className="mb-8 flex flex-col items-center text-center">
+          <Wordmark size="xl" />
+          <p className="mt-3 font-display text-sm italic text-muted-foreground">{t("login.tagline")}</p>
         </div>
 
-        <p className="mb-4 text-sm text-gray-600">
-          Enter your phone number and we’ll open the WhatsApp flow for you.
-        </p>
-
-        {step === "phone" ? (
-          <form className="space-y-4" onSubmit={handleStartPairing}>
-            <div>
-              <label htmlFor="name" className="mb-1 block text-sm font-medium text-gray-700">
-                Your name
-              </label>
-              <input
-                id="name"
-                type="text"
-                inputMode="text"
-                autoComplete="name"
-                placeholder="Riya"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                className="w-full rounded-full border border-gray-300 px-4 py-3 text-sm outline-none ring-0 focus:border-gray-900"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="phone" className="mb-1 block text-sm font-medium text-gray-700">
-                Phone number
-              </label>
-              <input
-                id="phone"
-                type="tel"
-                inputMode="tel"
-                autoComplete="tel"
-                placeholder="+919876543210"
-                value={phone}
-                onChange={(event) => setPhone(event.target.value)}
-                className="w-full rounded-full border border-gray-300 px-4 py-3 text-sm outline-none ring-0 focus:border-gray-900"
-              />
-              <p className="mt-2 text-xs text-gray-500">
-                Use the full number, including the country code. A +91 prefix is shown as a helper for Indian numbers.
-              </p>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-full bg-gray-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {loading ? "Preparing WhatsApp…" : "Continue"}
-            </button>
-
-            <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-center">
-              <p className="text-sm font-semibold text-gray-900">View Demo Dashboard (Riya Sharma)</p>
-              <p className="mt-1 text-xs text-gray-600">
-                See a fully populated example seller account — no WhatsApp needed.
-              </p>
-              <button
-                type="button"
-                onClick={handleDemoLogin}
-                disabled={demoLoading}
-                className="mt-3 w-full rounded-full border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-70"
-              >
-                {demoLoading ? "Opening demo…" : "View Demo Dashboard"}
-              </button>
-              {demoMessage ? (
-                <p className="mt-2 text-xs text-gray-600">{demoMessage}</p>
-              ) : null}
-            </div>
-          </form>
-        ) : step === "waiting" ? (
-          <div className="space-y-4">
-            <div className="flex items-center gap-3 rounded-full border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-900 border-t-transparent" />
-              <span>Waiting for confirmation on WhatsApp…</span>
-            </div>
-            {waLink ? (
-              <a
-                href={waLink}
-                target="_blank"
-                rel="noreferrer"
-                className="flex w-full items-center justify-center rounded-full bg-green-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-green-700"
-              >
-                Confirm on WhatsApp
-              </a>
-            ) : null}
-            <p className="text-sm text-gray-600">
-              We&apos;ve also sent a login link to your WhatsApp if you&apos;re already registered — otherwise, tap below to get started.
-            </p>
-            {error ? (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {error}
+        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+          {step === 1 && (
+            <form onSubmit={startPairing} className="space-y-4">
+              <div>
+                <h1 className="font-display text-2xl font-semibold">{t("login.welcome")}</h1>
+                <p className="mt-1 text-sm text-muted-foreground">{t("login.subtitle")}</p>
               </div>
-            ) : null}
-            {pollFailureCount >= 3 ? (
-              <button
-                type="button"
-                onClick={handleRetry}
-                className="w-full rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
-              >
-                Retry
-              </button>
-            ) : null}
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-              This took too long — try again.
-            </div>
-            <button
-              type="button"
-              onClick={resetToPhoneStep}
-              className="w-full rounded-full bg-gray-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-gray-800"
-            >
-              Try again
-            </button>
-          </div>
-        )}
 
-        {(statusMessage || error) && step === "waiting" ? (
-          <div className={`mt-4 rounded-xl border px-3 py-2 text-sm ${error ? "border-red-200 bg-red-50 text-red-700" : "border-green-200 bg-green-50 text-green-700"}`}>
-            {error || statusMessage}
-          </div>
-        ) : null}
+              <label className="block space-y-1.5" htmlFor="login-phone">
+                <span className="text-xs font-medium">{t("login.phoneLabel")}</span>
+                <div className="flex items-center rounded-lg border border-input bg-background px-3 focus-within:border-jamuni">
+                  <Phone className="h-4 w-4 text-muted-foreground" />
+                  <input
+                    id="login-phone"
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+91 98xxxxxxxx"
+                    className="w-full bg-transparent px-2 py-2.5 text-sm outline-none tabular-nums"
+                  />
+                </div>
+              </label>
+
+              <label className="block space-y-1.5" htmlFor="login-name">
+                <span className="text-xs font-medium">
+                  {t("login.nameLabel")} <span className="text-muted-foreground">{t("login.optional")}</span>
+                </span>
+                <input
+                  id="login-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={t("login.namePlaceholder")}
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-jamuni"
+                />
+              </label>
+
+              {error && <p className="text-xs text-urgent">{error}</p>}
+
+              <button type="submit" className="w-full rounded-lg bg-jamuni px-4 py-2.5 text-sm font-semibold text-primary-foreground transition hover:opacity-90">
+                {loading ? t("login.continue") : t("login.continue")}
+              </button>
+            </form>
+          )}
+
+          {step === 2 && pairing && (
+            <div className="space-y-4 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-safe-soft">
+                <MessageCircle className="h-6 w-6 text-safe" />
+              </div>
+              <div>
+                <h2 className="font-display text-lg font-semibold">{t("login.confirmTitle")}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{t("login.confirmSub")}</p>
+              </div>
+
+              <a href={pairing.wa_link} target="_blank" rel="noreferrer" className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-whatsapp px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90">
+                <MessageCircle className="h-4 w-4" /> {t("login.openWa")}
+              </a>
+
+              <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-jamuni" />
+                {t("login.waiting")}
+              </div>
+
+              {pollFailures >= 3 && (
+                <button onClick={handleRetry} className="inline-flex items-center gap-1.5 text-xs font-medium text-jamuni">
+                  <RotateCw className="h-3.5 w-3.5" /> Try again
+                </button>
+              )}
+
+              {error && <p className="text-xs text-urgent">{error}</p>}
+
+              <button onClick={resetToPhoneStep} className="text-xs text-muted-foreground hover:text-foreground">
+                {t("login.diffNumber")}
+              </button>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="space-y-4 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-urgent-soft">
+                <Phone className="h-6 w-6 text-urgent" />
+              </div>
+              <div>
+                <h2 className="font-display text-lg font-semibold">{t("login.confirmTitle")}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{error || "This took too long — try again."}</p>
+              </div>
+              <button onClick={handleRetry} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-foreground">
+                <RotateCw className="h-4 w-4" /> Try again
+              </button>
+              <button onClick={resetToPhoneStep} className="text-xs text-muted-foreground hover:text-foreground">
+                {t("login.diffNumber")}
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-dashed border-jamuni/40 bg-jamuni-soft/40 p-4 text-center">
+          <p className="text-xs text-jamuni-ink">{t("login.exploring")}</p>
+          <button onClick={demoLogin} className="mt-1 text-sm font-semibold text-jamuni underline-offset-2 hover:underline">
+            {t("login.viewDemo")}
+          </button>
+          {demoMessage && <p className="mt-2 text-xs text-urgent">{demoMessage}</p>}
+          {demoLoading && <p className="mt-2 text-xs text-muted-foreground">Opening demo…</p>}
+        </div>
       </div>
     </div>
   );

@@ -1,43 +1,36 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { X } from "lucide-react";
 
-export default function WhatsAppToast({ message, senderName, onDismiss, onClick }) {
-  const [isVisible, setIsVisible] = useState(false);
-
+export function WhatsAppToast({ message, senderName, onDismiss, onClick }) {
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      onDismiss?.();
-    }, 5000);
-
-    const visibleTimer = window.setTimeout(() => setIsVisible(true), 10);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-      window.clearTimeout(visibleTimer);
-    };
+    const t = setTimeout(onDismiss, 5000);
+    return () => clearTimeout(t);
   }, [onDismiss]);
-
-  const preview = message?.trim?.() || "New WhatsApp notification";
-  const initial = (senderName || "A").trim().charAt(0).toUpperCase();
-
   return (
-    <div className="fixed right-4 top-4 z-50">
-      <div
-        className={`flex max-w-sm items-start gap-3 rounded-2xl border border-green-200 bg-white px-4 py-3 text-left shadow-lg shadow-green-900/10 transition-all duration-200 ${isVisible ? "translate-y-0 opacity-100" : "translate-y-[-8px] opacity-0"}`}
+    <div className="toast-slide-in fixed right-4 top-4 z-50 w-[340px] max-w-[calc(100vw-2rem)] sm:right-6 sm:top-6">
+
+      <button
+        onClick={onClick}
+        className="w-full rounded-xl bg-card p-3 text-left shadow-lg ring-1 ring-border transition hover:ring-jamuni"
       >
-        <button
-          type="button"
-          onClick={onClick}
-          className="flex w-full items-start gap-3 text-left"
-        >
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-600 text-sm font-semibold text-white">
-            {initial}
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-whatsapp text-white">
+            <span className="text-lg">📱</span>
           </div>
-          <div className="min-w-0">
-            <div className="text-sm font-semibold text-gray-900">{senderName}</div>
-            <div className="mt-1 line-clamp-2 text-sm text-gray-600">{preview}</div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <p className="truncate text-sm font-semibold">{senderName}</p>
+              <span
+                onClick={(e) => { e.stopPropagation(); onDismiss(); }}
+                className="cursor-pointer rounded p-0.5 text-muted-foreground hover:bg-muted"
+              >
+                <X className="h-3.5 w-3.5" />
+              </span>
+            </div>
+            <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">{message}</p>
           </div>
-        </button>
-      </div>
+        </div>
+      </button>
     </div>
   );
 }

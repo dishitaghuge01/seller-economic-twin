@@ -1,158 +1,117 @@
-import { useRef, useState } from "react";
-import TypingIndicator from "./TypingIndicator.jsx";
+import { useState } from "react";
+import { ChevronDown, ChevronUp, Send } from "lucide-react";
+import { useT } from "@/lib/i18n";
 
-const severityConfig = {
-  urgent: { bg: "bg-red-100", text: "text-red-700", label: "URGENT" },
-  watch: { bg: "bg-amber-100", text: "text-amber-700", label: "WATCH" },
-  safe: { bg: "bg-green-100", text: "text-green-700", label: "SAFE" },
+
+const sevBadge = {
+  urgent: "bg-urgent-soft text-urgent",
+  watch: "bg-watch-soft text-watch",
+  safe: "bg-safe-soft text-safe",
 };
 
-function confidenceColor(v) {
-  const s = (v || "").toLowerCase();
-  if (s.includes("high")) return "bg-green-100 text-green-700";
-  if (s.includes("medium")) return "bg-amber-100 text-amber-700";
-  if (s.includes("low")) return "bg-red-100 text-red-700";
-  return "bg-gray-100 text-gray-700";
-}
-
-function parseSummary(summary) {
-  if (!summary) return [];
-  return summary.split("|").map((chunk) => {
-    const [k, ...rest] = chunk.split(":");
-    return { key: (k || "").trim(), value: rest.join(":").trim() };
-  });
-}
-
-function LogEntry({ entry }) {
-  const [open, setOpen] = useState(false);
-  const sev = severityConfig[entry.stockout_severity] || severityConfig.safe;
-  const summary = parseSummary(entry.action_summary);
-  const triggerBadge =
-    entry.trigger === "user_message"
-      ? { cls: "bg-blue-100 text-blue-700", label: "User query" }
-      : { cls: "bg-gray-100 text-gray-700", label: "Scheduled" };
-
+function ActionEntry({ action }) {
+  const t = useT();
+  const [showTrace, setShowTrace] = useState(false);
+  const chips = (action.action_summary || "").split("|").map((c) => c.trim()).filter(Boolean);
   return (
-    <div className="border border-gray-100 rounded-lg p-3">
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-gray-500">{entry.action_date || entry.created_at?.slice(0, 10)}</span>
-        <span className={`px-2 py-0.5 rounded-full font-medium ${triggerBadge.cls}`}>
-          {triggerBadge.label}
+    <li className="rounded-xl border border-border bg-card p-4">
+      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+        <span className="font-medium text-muted-foreground">{action.action_date}</span>
+        <span className="rounded-full bg-muted px-2 py-0.5 font-medium">
+          {action.trigger === "scheduled" ? t("log.scheduled") : t("log.userQuery")}
         </span>
-        {entry.tool_called && (
-          <span className="px-2 py-0.5 rounded-full font-medium bg-purple-100 text-purple-700">
-            {entry.tool_called}
-          </span>
-        )}
-        <span className={`px-2 py-0.5 rounded-full font-semibold ${sev.bg} ${sev.text}`}>
-          {sev.label}
+        <span className="rounded-full bg-jamuni-soft px-2 py-0.5 font-medium text-jamuni-ink">
+          {t("log.tool")}: {action.tool_called}
+        </span>
+        <span className={`rounded-full px-2 py-0.5 font-bold uppercase tracking-wide ${sevBadge[action.stockout_severity] || "bg-muted"}`}>
+          {t(`sku.${action.stockout_severity}`)}
         </span>
       </div>
 
-      <div className="mt-2 rounded-md bg-gray-50 border border-gray-100 px-3 py-2 text-sm text-gray-800">
-        <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">
-          What the seller saw
-        </div>
-        {entry.seller_message}
+      <div className="mt-3 rounded-lg border-l-0 bg-jamuni-soft/50 p-3">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-jamuni-ink/80">{t("log.sellerSaw")}</p>
+        <p className="mt-1 text-sm font-devanagari leading-relaxed">{action.seller_message}</p>
       </div>
 
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="mt-2 text-xs text-blue-600 hover:underline"
-      >
-        {open ? "Hide reasoning" : "Show reasoning"}
+      <button onClick={() => setShowTrace((v) => !v)} className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-jamuni">
+        {showTrace ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        {t("log.showReasoning")}
       </button>
-      {open && (
+
+
+      {showTrace && (
         <div className="mt-2 space-y-2">
-          <pre className="whitespace-pre-wrap text-[11px] font-mono bg-gray-900 text-gray-100 rounded p-2">
-            {entry.reasoning_trace}
+          <div className="flex flex-wrap gap-1.5">
+            {chips.map((c, i) => {
+              const [k, v] = c.split(":").map((s) => s?.trim());
+              if (!k) return null;
+              return (
+                <span key={i} className="rounded-md border border-border bg-muted/60 px-2 py-0.5 text-[10px] font-mono">
+                  {k}{v ? `: ${v}` : ""}
+                </span>
+              );
+            })}
+          </div>
+          <pre className="max-h-56 overflow-auto rounded-lg bg-ink/95 p-3 font-mono text-[11px] leading-snug text-paper">
+            {action.reasoning_trace}
           </pre>
-          {summary.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {summary.map((s, i) => {
-                const cls =
-                  s.key === "ACTION"
-                    ? "bg-gray-200 text-gray-800"
-                    : s.key === "REASON"
-                      ? "bg-blue-100 text-blue-700"
-                      : s.key === "CONFIDENCE"
-                        ? confidenceColor(s.value)
-                        : "bg-gray-100 text-gray-700";
-                return (
-                  <span key={i} className={`text-[11px] px-2 py-0.5 rounded-full ${cls}`}>
-                    {s.key}: {s.value}
-                  </span>
-                );
-              })}
-            </div>
-          )}
         </div>
       )}
-    </div>
+    </li>
   );
 }
 
-export default function AgentReasoningLog({ agentActions, onUserMessage }) {
-  const [text, setText] = useState("");
+export function AgentReasoningLog({ agentActions, onUserMessage }) {
+  const t = useT();
+  const [q, setQ] = useState("");
   const [sending, setSending] = useState(false);
-  const sendingRef = useRef(false);
-  const sorted = [...agentActions].sort((a, b) =>
-    (b.created_at || "").localeCompare(a.created_at || ""),
-  );
 
-  const handleSend = async () => {
-    const t = text.trim();
-    if (!t || sendingRef.current) return;
-    sendingRef.current = true;
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!q.trim() || sending) return;
     setSending(true);
-    try {
-      await onUserMessage(t);
-      setText("");
-    } finally {
-      sendingRef.current = false;
-      setSending(false);
+    try { await onUserMessage(q.trim()); setQ(""); } finally { setSending(false); }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void submit(e);
     }
   };
 
   return (
-    <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-      <h3 className="font-semibold text-gray-900 mb-3">Agent Reasoning Log</h3>
-      <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
-        {sorted.map((e) => (
-          <LogEntry key={e.action_id} entry={e} />
-        ))}
-        {sending && <TypingIndicator />}
-      </div>
+    <div className="space-y-4">
+      <ul className="space-y-3">
+        {(agentActions || []).map((a) => <ActionEntry key={a.action_id} action={a} />)}
+        {(!agentActions || agentActions.length === 0) && (
+          <li className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+            {t("log.empty")}
+          </li>
+        )}
+      </ul>
 
-      <div className="mt-4 border-t border-gray-100 pt-3">
-        <label className="text-xs text-gray-500 block mb-1">
-          Ask the agent a question
-        </label>
-        <div className="flex gap-2">
+      <form onSubmit={submit} className="rounded-xl border border-border bg-card p-3">
+        <label className="text-[11px] font-medium text-muted-foreground">{t("log.askUday")}</label>
+        <div className="mt-1.5 flex items-end gap-2">
           <textarea
+            value={q}
+            onKeyDown={handleKeyDown}
+            onChange={(e) => setQ(e.target.value)}
             rows={2}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                if (!sendingRef.current) {
-                  handleSend();
-                }
-              }
-            }}
-            placeholder="e.g. Why did you keep the price at ₹410?"
-            className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+            placeholder={t("log.askPlaceholder")}
+            className="flex-1 resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-jamuni"
           />
+
           <button
-            onClick={handleSend}
-            disabled={sending || !text.trim()}
-            className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium disabled:opacity-50"
+            type="submit"
+            disabled={sending || !q.trim()}
+            className="flex h-10 w-10 items-center justify-center rounded-lg bg-jamuni text-primary-foreground transition hover:opacity-90 disabled:opacity-40"
           >
-            {sending ? "…" : "Send"}
+            {sending ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : <Send className="h-4 w-4" />}
           </button>
         </div>
-      </div>
+      </form>
     </div>
   );
 }

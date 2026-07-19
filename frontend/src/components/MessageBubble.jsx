@@ -1,74 +1,49 @@
-function formatTime(iso) {
-  const d = new Date(iso);
-  const today = new Date();
-  const sameDay =
-    d.getFullYear() === today.getFullYear() &&
-    d.getMonth() === today.getMonth() &&
-    d.getDate() === today.getDate();
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  if (sameDay) return `${hh}:${mm}`;
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return `${d.getDate()} ${months[d.getMonth()]}, ${hh}:${mm}`;
+import { useState } from "react";
+import { useT } from "@/lib/i18n";
+
+
+function timeOf(ts) {
+  try { return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch { return ""; }
 }
 
-function parseSummary(summary) {
-  if (!summary) return [];
-  return summary.split("|").map((chunk) => {
-    const [k, ...rest] = chunk.split(":");
-    return { key: (k || "").trim(), value: rest.join(":").trim() };
-  });
-}
-
-export default function MessageBubble({ message, showReasoning, relatedAction }) {
-  const isSellerMessage = message.direction === "inbound";
-  const isAgentMessage = message.direction === "outbound";
-  const summary = relatedAction ? parseSummary(relatedAction.action_summary) : [];
+export function MessageBubble({ message, showReasoning, relatedAction }) {
+  const t = useT();
+  const [expanded, setExpanded] = useState(false);
+  const isInbound = message.direction === "inbound";
 
   return (
-    <div className={`flex ${isSellerMessage ? "justify-end" : "justify-start"} mb-2`}>
-      <div className={`max-w-[85%] flex flex-col ${isSellerMessage ? "items-end" : "items-start"}`}>
-        <div
-          className={
-            "px-3 py-2 rounded-2xl text-sm shadow-sm whitespace-pre-wrap break-words " +
-            (isSellerMessage
-              ? "rounded-br-sm text-gray-900"
-              : "rounded-bl-sm bg-white text-gray-900")
-          }
-          style={isSellerMessage ? { backgroundColor: "#dcf8c6" } : undefined}
-        >
-          {message.message_body}
-          <div className={`text-[10px] text-gray-500 mt-1 ${isSellerMessage ? "text-right" : "text-left"}`}>
-            {formatTime(message.created_at)}
+    <div className={`flex ${isInbound ? "justify-end" : "justify-start"} w-full`}>
+      <div className={`max-w-[78%] rounded-2xl px-3 py-2 text-sm shadow-sm ${isInbound ? "bg-whatsapp-bubble text-ink" : "bg-card text-foreground"}`}
+        style={isInbound ? { borderBottomRightRadius: 4 } : { borderBottomLeftRadius: 4 }}>
+        <div className="space-y-1.5">
+          <p className="whitespace-pre-wrap leading-relaxed">{message.message_body}</p>
+          <div className="flex items-center justify-end gap-1 text-[10px] text-muted-foreground">
+            <span>{timeOf(message.created_at)}</span>
           </div>
-        </div>
-
-        {isAgentMessage && showReasoning && relatedAction && (
-          <div className="mt-1 max-w-full bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-xs">
-            <div className="flex flex-wrap gap-1 mb-1">
-              {summary.map((s, i) => (
-                <span
-                  key={i}
-                  className="px-1.5 py-0.5 rounded bg-white border border-gray-200 text-gray-700"
-                >
-                  {s.key}: {s.value}
-                </span>
-              ))}
+          {showReasoning && !isInbound && relatedAction && (
+            <div className="mt-2 space-y-1.5 border-t border-black/5 pt-2">
+              <div className="flex flex-wrap gap-1">
+                {(relatedAction.action_summary || "").split("|").map((chunk, i) => {
+                  const [k, v] = chunk.split(":").map((s) => s?.trim());
+                  if (!k || !v) return null;
+                  return (
+                    <span key={i} className="rounded-full bg-jamuni-soft px-2 py-0.5 text-[10px] font-medium text-jamuni-ink">
+                      {k}: {v}
+                    </span>
+                  );
+                })}
+              </div>
+              <button onClick={() => setExpanded((v) => !v)} className="text-[11px] font-medium text-jamuni underline-offset-2 hover:underline">
+                {expanded ? t("wa.hide") : t("wa.viewReasoning")}
+              </button>
+              {expanded && (
+                <pre className="mt-1 max-h-40 overflow-auto rounded-md bg-ink/95 p-2 font-mono text-[10px] leading-snug text-paper">
+                  {relatedAction.reasoning_trace}
+                </pre>
+              )}
             </div>
-            <button
-              onClick={() => {
-                window.dispatchEvent(
-                  new CustomEvent("open-reasoning", {
-                    detail: { actionId: relatedAction.action_id },
-                  }),
-                );
-              }}
-              className="text-blue-600 hover:underline"
-            >
-              View full reasoning
-            </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

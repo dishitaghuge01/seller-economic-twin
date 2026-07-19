@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import ComposeBar from "./ComposeBar.jsx";
+import { ComposeBar } from "./ComposeBar.jsx";
 
 describe("ComposeBar", () => {
   test("test_compose_bar_send", async () => {

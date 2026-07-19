@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import ForecastFanChart from "./ForecastFanChart.jsx";
+import { ForecastFanChart } from "./ForecastFanChart.jsx";
 import apiClient from "../apiClient.js";
 
 describe("ForecastFanChart", () => {

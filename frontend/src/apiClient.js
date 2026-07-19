@@ -7,8 +7,11 @@ import * as realApi from "./api.js";
 import * as mockApi from "./mockApi.js";
 
 const USE_MOCK =
-  import.meta.env.VITE_API_URL === "mock" || !import.meta.env.VITE_API_URL;
+  import.meta.env.VITE_API_URL === "mock" ||
+  (!import.meta.env.VITE_API_URL && (import.meta.env.MODE === "test" || import.meta.env.VITEST));
 
-const client = USE_MOCK ? mockApi : realApi;
+const api = USE_MOCK ? mockApi : realApi;
 
-export default client;
+const apiClient = { ...api };
+
+export default apiClient;

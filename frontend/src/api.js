@@ -19,6 +19,49 @@ function maybeSignOut() {
   window.dispatchEvent(new CustomEvent("seller-twin-auth-change", { detail: { authenticated: false } }));
 }
 
+async function requestUnauthenticated(path, options = {}) {
+  const headers = {
+    "Content-Type": "application/json",
+    ...(options.headers || {}),
+  };
+
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: options.method || "GET",
+    headers,
+    ...(options.body ? { body: options.body } : {}),
+  });
+
+  const contentType = res.headers?.get?.("content-type") || "";
+  let bodyText = "";
+  let parsedBody = null;
+
+  if (typeof res.text === "function") {
+    bodyText = await res.text();
+    if (contentType.includes("application/json") && bodyText) {
+      try {
+        parsedBody = JSON.parse(bodyText);
+      } catch {
+        parsedBody = null;
+      }
+    }
+  } else if (typeof res.json === "function") {
+    parsedBody = await res.json();
+  }
+
+  if (!res.ok) {
+    const detail = _extractErrorMessage(parsedBody, bodyText, res);
+    const error = new Error(detail);
+    error.status = res.status;
+    throw error;
+  }
+
+  if (parsedBody !== null) {
+    return parsedBody;
+  }
+
+  return bodyText ? JSON.parse(bodyText) : null;
+}
+
 export function _extractErrorMessage(parsedBody, bodyText, res) {
   const detail = parsedBody?.detail;
 
@@ -112,6 +155,43 @@ async function request(path, options = {}) {
 
   return bodyText ? JSON.parse(bodyText) : null;
 }
+
+export const startPairing = async ({ phone, name }) => {
+  return requestUnauthenticated("/auth/start-pairing", {
+    method: "POST",
+    body: JSON.stringify({
+      phone_number: phone,
+      ...(name ? { seller_name: name } : {}),
+    }),
+  });
+};
+
+export const getPairingStatus = async (phone) => {
+  const encodedPhone = encodeURIComponent(phone);
+  return requestUnauthenticated(`/auth/pairing-status?phone_number=${encodedPhone}`);
+};
+
+export const demoLogin = async () => {
+  const res = await fetch(`${BASE_URL}/auth/demo-login`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (res.status === 404) {
+    throw new Error("Demo login is not available in this deployment.");
+  }
+
+  if (!res.ok) {
+    const bodyText = await res.text();
+    const error = new Error(bodyText || "Demo login failed.");
+    error.status = res.status;
+    throw error;
+  }
+
+  return res.json();
+};
 
 export const getWhoAmI = async () => {
   return request("/seller/me");

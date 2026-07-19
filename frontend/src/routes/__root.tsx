@@ -11,6 +11,8 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportError } from "../lib/error-reporting";
+import { LanguageProvider } from "../lib/i18n.jsx";
+import { Toaster } from "../components/ui/sonner.tsx";
 
 function NotFoundComponent() {
   return (
@@ -124,8 +126,11 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
+      <LanguageProvider>
+        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+        <Outlet />
+        <Toaster position="top-right" />
+      </LanguageProvider>
     </QueryClientProvider>
   );
 }
