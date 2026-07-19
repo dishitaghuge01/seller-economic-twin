@@ -208,9 +208,19 @@ export default function LoginScreen({ onLoginSuccess }) {
                 <p className="mt-1 text-sm text-muted-foreground">{t("login.confirmSub")}</p>
               </div>
 
-              <a href={pairing.wa_link} target="_blank" rel="noreferrer" className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-whatsapp px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90">
-                <MessageCircle className="h-4 w-4" /> {t("login.openWa")}
-              </a>
+              {pairing.wa_link?.trim() ? (
+                <a href={pairing.wa_link} target="_blank" rel="noreferrer" className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-whatsapp px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90">
+                  <MessageCircle className="h-4 w-4" /> {t("login.openWa")}
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="inline-flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-whatsapp/70 px-4 py-2.5 text-sm font-semibold text-white/90 opacity-80"
+                >
+                  <MessageCircle className="h-4 w-4" /> {t("login.openWa")}
+                </button>
+              )}
 
               <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-jamuni" />

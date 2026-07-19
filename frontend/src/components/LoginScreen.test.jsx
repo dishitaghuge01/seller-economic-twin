@@ -40,6 +40,18 @@ describe("LoginScreen pairing flow", () => {
     expect(onLoginSuccess).toHaveBeenCalledWith("pairing-token");
   });
 
+  it("renders a disabled WhatsApp action until a pairing link is available", async () => {
+    global.fetch.mockReturnValueOnce(new Promise(() => {}));
+
+    render(<LoginScreen onLoginSuccess={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText(/phone number/i), { target: { value: "+919876543210" } });
+    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
+
+    const actionButton = screen.getByRole("button", { name: /open whatsapp/i });
+    expect(actionButton).toBeDisabled();
+  });
+
   it("shows an expired-state message after the polling window closes", async () => {
     global.fetch
       .mockResolvedValueOnce({
