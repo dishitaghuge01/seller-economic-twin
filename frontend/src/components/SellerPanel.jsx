@@ -273,7 +273,7 @@ export default function SellerPanel({ sellerId, isDemoSeller = false, onDemoNoti
                   <h3 className="font-display text-lg font-semibold">{t("sec.priceExploration")}</h3>
                   <p className="text-xs text-muted-foreground">{t("sec.priceExplorationSub", { name: selectedSku.sku_name })}</p>
                 </div>
-                <PriceExplorationChart skuId={selectedSku.sku_id} priceArms={history?.price_arms} />
+                <PriceExplorationChart sellerId={sellerId} skuId={selectedSku.sku_id} priceArms={history?.price_arms} />
               </section>
 
               <section className="rounded-2xl border border-border bg-card p-5">

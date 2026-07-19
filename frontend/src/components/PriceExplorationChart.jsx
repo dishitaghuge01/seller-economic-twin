@@ -6,22 +6,63 @@ import { LoadingSpinner } from "./LoadingSpinner";
 import { useT } from "@/lib/i18n";
 
 
-export function PriceExplorationChart({ skuId, priceArms: initialArms }) {
+export function PriceExplorationChart({ sellerId, skuId, priceArms: initialArms }) {
   const t = useT();
   const [arms, setArms] = useState(initialArms || null);
   const [loading, setLoading] = useState(!initialArms);
+  const [error, setError] = useState(null);
   const [showAbout, setShowAbout] = useState(false);
 
+  const loadArms = () => {
+    if (initialArms) {
+      setArms(initialArms);
+      setLoading(false);
+      setError(null);
+      return;
+    }
 
-  useEffect(() => {
-    if (initialArms) { setArms(initialArms); return; }
     let alive = true;
     setLoading(true);
-    apiClient.getSkuHistory(null, skuId).then((h) => { if (alive) { setArms(h.price_arms); setLoading(false); } });
-    return () => { alive = false; };
-  }, [skuId, initialArms]);
+    setError(null);
+    apiClient.getSkuHistory(sellerId, skuId)
+      .then((h) => {
+        if (alive) {
+          setArms(h.price_arms);
+        }
+      })
+      .catch((err) => {
+        if (alive) {
+          setError(err?.message || "Unable to load price arms.");
+        }
+      })
+      .finally(() => {
+        if (alive) {
+          setLoading(false);
+        }
+      });
 
-  if (loading || !arms) return <LoadingSpinner messages={[t("chart.loadingArms")]} />;
+    return () => {
+      alive = false;
+    };
+  };
+
+  useEffect(() => {
+    return loadArms();
+  }, [sellerId, skuId, initialArms]);
+
+  if (loading || !arms) {
+    if (error && !arms) {
+      return (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <p>{error}</p>
+          <button onClick={loadArms} className="mt-2 text-xs font-medium underline">
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return <LoadingSpinner messages={[t("chart.loadingArms")]} />;
+  }
 
   const enriched = arms.map((a) => ({
     ...a,

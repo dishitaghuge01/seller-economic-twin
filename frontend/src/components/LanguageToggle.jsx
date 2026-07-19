@@ -2,6 +2,7 @@ import { useLang } from "@/lib/i18n";
 
 export function LanguageToggle({ className = "" }) {
   const { lang, setLang, t } = useLang();
+  console.log("[i18n debug]", { lang, storedValue: window.localStorage.getItem("uday_ui_lang") });
   return (
     <div
       role="group"
