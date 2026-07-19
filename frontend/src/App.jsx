@@ -98,6 +98,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    console.log("[lang-sync effect] firing", { sellerProfileRef: sellerProfile, timestamp: Date.now() });
     if (!sellerProfile) return;
     const stored = window.localStorage.getItem("uday_ui_lang");
     if (stored === "hi" || stored === "en") return;
@@ -105,6 +106,7 @@ export default function App() {
     apiClient.getSeller(sellerId)
       .then((res) => {
         const pref = res?.seller?.language_preference;
+        console.log("[lang-sync effect] got pref from backend", { pref, sellerId });
         if (pref === "en" || pref === "hi") setLang(pref);
       })
       .catch(() => {});

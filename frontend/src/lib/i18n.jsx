@@ -187,6 +187,7 @@ export function LanguageProvider({ children }) {
   }, []);
 
   const setLang = useCallback((next) => {
+    console.log("[setLang called]", { next, stack: new Error().stack });
     setLangState(next);
     // setLang is the single source of truth for the stored language key.
     try { window.localStorage.setItem(STORAGE_KEY, next); } catch { /* empty */ }
