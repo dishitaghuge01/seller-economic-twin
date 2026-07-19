@@ -1,19 +1,13 @@
 import { useState } from "react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  LabelList,
-  Cell,
-} from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { ChevronDown, ChevronUp } from "lucide-react";
+import { useT } from "../lib/i18n.jsx";
 
-export default function PriceExplorationChart({ skuId, priceArms }) {
+export function PriceExplorationChart({ skuId, priceArms }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
 
-  const enriched = priceArms.map((a) => {
+  const enriched = (priceArms || []).map((a) => {
     const mean = a.alpha / (a.alpha + a.beta_param);
     const n = a.alpha + a.beta_param;
     const sd = Math.sqrt((mean * (1 - mean)) / n);
@@ -29,79 +23,52 @@ export default function PriceExplorationChart({ skuId, priceArms }) {
   const bestMean = Math.max(...enriched.map((e) => e.posterior_mean));
 
   return (
-    <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-      <h3 className="font-semibold text-gray-900 mb-1">Price Exploration</h3>
-      <p className="text-xs text-gray-500 mb-4">
-        Times each price was tried by the agent
-      </p>
-
-      <div className="h-64 w-full min-w-0">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={enriched} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
-            <XAxis dataKey="priceLabel" tick={{ fontSize: 12 }} />
-            <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
-            <Tooltip
-              formatter={(v) => [v, "Times chosen"]}
-              labelFormatter={(l) => `Price ${l}`}
-            />
+    <div className="space-y-3">
+      <div className="h-52 w-full">
+        <ResponsiveContainer>
+          <BarChart data={enriched} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+            <XAxis dataKey="priceLabel" tickFormatter={(value) => value} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+            <Tooltip cursor={{ fill: "oklch(0.48 0.17 310 / 0.08)" }} contentStyle={{ borderRadius: 8, border: "1px solid var(--border)", fontSize: 12 }} formatter={(value) => [value, t("chart.timesChosen")]} labelFormatter={(label) => `${t("chart.price")} ${label}`} />
             <Bar dataKey="times_chosen" radius={[6, 6, 0, 0]}>
               {enriched.map((e, i) => (
-                <Cell
-                  key={i}
-                  fill={e.posterior_mean === bestMean ? "#1e40af" : "#93c5fd"}
-                />
+                <Cell key={`${e.price_value}-${i}`} fill={e.posterior_mean === bestMean ? "var(--jamuni)" : "oklch(0.48 0.17 310 / 0.28)"} />
               ))}
-              <LabelList dataKey="times_chosen" position="top" style={{ fontSize: 11 }} />
             </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
 
-      <div className="mt-4 overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="text-xs text-gray-500 uppercase border-b">
+      <div className="overflow-hidden rounded-lg border border-border">
+        <table className="w-full text-xs">
+          <thead className="bg-muted/60">
             <tr>
-              <th className="text-left py-2">Price</th>
-              <th className="text-right py-2">Times Chosen</th>
-              <th className="text-right py-2">Posterior Mean</th>
-              <th className="text-right py-2">95% CI</th>
+              <th className="px-3 py-2 text-left font-medium text-muted-foreground">{t("chart.price")}</th>
+              <th className="px-3 py-2 text-right font-medium text-muted-foreground">{t("chart.timesChosenCol")}</th>
+              <th className="px-3 py-2 text-right font-medium text-muted-foreground">{t("chart.posteriorMean")}</th>
+              <th className="px-3 py-2 text-right font-medium text-muted-foreground">{t("chart.ci95")}</th>
             </tr>
           </thead>
           <tbody>
-            {enriched.map((e) => (
-              <tr
-                key={e.price_value}
-                className={
-                  "border-b border-gray-100 " +
-                  (e.posterior_mean === bestMean ? "bg-blue-50" : "")
-                }
-              >
-                <td className="py-2 font-medium">{e.priceLabel}</td>
-                <td className="py-2 text-right">{e.times_chosen}</td>
-                <td className="py-2 text-right">{e.posterior_mean.toFixed(2)}</td>
-                <td className="py-2 text-right text-gray-600">
-                  [{e.ci_low.toFixed(2)}, {e.ci_high.toFixed(2)}]
-                </td>
+            {enriched.map((e, index) => (
+              <tr key={`${e.price_value}-${index}`} className={e.posterior_mean === bestMean ? "bg-jamuni-soft/60" : ""}>
+                <td className="px-3 py-2 font-medium tabular-nums">{e.priceLabel}{e.posterior_mean === bestMean && <span className="ml-1.5 text-[10px] font-bold text-jamuni">{t("chart.best")}</span>}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{e.times_chosen}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{e.posterior_mean.toFixed(3)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{e.ci_low.toFixed(2)} – {e.ci_high.toFixed(2)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="mt-4 text-xs text-blue-600 hover:underline"
-      >
-        {open ? "Hide" : "About this chart"}
+      <button onClick={() => setOpen((value) => !value)} className="flex items-center gap-1 text-xs font-medium text-jamuni">
+        {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        {t("chart.about")}
       </button>
-      {open && (
-        <p className="mt-2 text-xs text-gray-600 leading-relaxed">
-          The agent uses Thompson Sampling to explore different price points. Each price
-          starts with equal chance of being picked; when a price sells well, its posterior
-          mean rises and the agent picks it more often. Prices with taller bars have been
-          tried more; the highlighted price currently looks best given the evidence so far.
-        </p>
-      )}
+      {open && <p className="rounded-lg bg-muted/60 p-3 text-xs leading-relaxed text-muted-foreground">{t("chart.aboutBody")}</p>}
     </div>
   );
 }
+
+export default PriceExplorationChart;

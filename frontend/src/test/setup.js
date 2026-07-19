@@ -11,6 +11,10 @@ if (!globalThis.ResizeObserver) {
 	globalThis.ResizeObserver = ResizeObserverMock;
 }
 
+if (typeof window !== "undefined") {
+	window.ResizeObserver = globalThis.ResizeObserver;
+}
+
 if (typeof window !== "undefined" && window.localStorage) {
 	Object.defineProperty(globalThis, "localStorage", {
 		value: window.localStorage,
