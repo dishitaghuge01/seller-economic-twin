@@ -9,7 +9,6 @@ import { useT } from "../lib/i18n.jsx";
 export default function WhatsAppPanel({ sellerId }) {
   const t = useT();
   const [messages, setMessages] = useState([]);
-  const [showReasoning, setShowReasoning] = useState(false);
   const [sending, setSending] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [actionsBySummary, setActionsBySummary] = useState({});
@@ -122,10 +121,6 @@ export default function WhatsAppPanel({ sellerId }) {
             <p className="text-[11px] text-white/70">{t("wa.online")}</p>
           </div>
         </div>
-        <label className="flex cursor-pointer items-center gap-2 text-xs">
-          <input type="checkbox" checked={showReasoning} onChange={(e) => setShowReasoning(e.target.checked)} className="accent-white" />
-          {t("wa.showReasoning")}
-        </label>
       </div>
 
       <div ref={scrollRef} className="whatsapp-wallpaper flex-1 space-y-2 overflow-y-auto px-3 py-3">
@@ -133,7 +128,6 @@ export default function WhatsAppPanel({ sellerId }) {
           <MessageBubble
             key={m.message_id}
             message={m}
-            showReasoning={showReasoning}
             relatedAction={actionsBySummary[m.message_body]}
           />
         ))}

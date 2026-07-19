@@ -7,7 +7,7 @@ import { ForecastFanChart } from "./ForecastFanChart.jsx";
 import { ShockEventChart } from "./ShockEventChart.jsx";
 import { AgentReasoningLog } from "./AgentReasoningLog.jsx";
 import { SettingsDrawer } from "./SettingsDrawer.jsx";
-import DemoRunner from "./DemoRunner.jsx";
+import { DemoRunner } from "./DemoRunner.jsx";
 import { AddProductModal } from "./AddProductModal.jsx";
 import { LoadingSpinner } from "./LoadingSpinner.jsx";
 import { useT } from "../lib/i18n.jsx";

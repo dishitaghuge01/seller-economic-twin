@@ -6,7 +6,6 @@ describe("MessageBubble", () => {
     render(
       <MessageBubble
         message={{ direction: "outbound", message_body: "Agent message", created_at: "2024-07-14T08:00:00" }}
-        showReasoning={false}
         relatedAction={null}
       />,
     );
@@ -19,7 +18,6 @@ describe("MessageBubble", () => {
     render(
       <MessageBubble
         message={{ direction: "inbound", message_body: "Seller message", created_at: "2024-07-14T08:00:00" }}
-        showReasoning={false}
         relatedAction={null}
       />,
     );

@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState } from "react";
+import { Play, RotateCcw, StopCircle } from "lucide-react";
 import apiClient from "../apiClient.js";
+import { useT } from "../lib/i18n.jsx";
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function buildLogLine(stepResponse) {
+function buildLogLine(stepResponse, t) {
   const shockSku = stepResponse?.shock_sku;
   const depletionSku = stepResponse?.depletion_sku;
-  const targetName = shockSku?.sku_name || depletionSku?.sku_name || "Demo SKU";
+  const targetName = shockSku?.sku_name || depletionSku?.sku_name || t("demo.defaultSku");
   const severity = shockSku?.stockout_severity || depletionSku?.stockout_severity;
   const sentNotification = stepResponse?.notifications?.find((n) => n.sent);
 
   if (stepResponse?.shock_event_triggered_today) {
-    return `Day ${stepResponse.day}: ${targetName} demand dropped — market shift detected`;
+    return `${t("demo.logDay", { day: stepResponse.day })} ${targetName} ${t("demo.logShock")}`;
   }
 
   if (sentNotification) {
@@ -22,25 +24,26 @@ function buildLogLine(stepResponse) {
           ? depletionSku
           : null;
     const skuName = matchingSku?.sku_name || targetName;
-    return `Day ${stepResponse.day}: ${skuName} alert triggered — WhatsApp notification sent`;
+    return `${t("demo.logDay", { day: stepResponse.day })} ${skuName} ${t("demo.logAlertSent")}`;
   }
 
   if (severity === "urgent") {
-    return `Day ${stepResponse.day}: ${targetName} stock critical — no notification needed`;
+    return `${t("demo.logDay", { day: stepResponse.day })} ${targetName} ${t("demo.logCritical")}`;
   }
 
   if (severity === "watch") {
-    return `Day ${stepResponse.day}: ${targetName} stock under watch — no notification needed`;
+    return `${t("demo.logDay", { day: stepResponse.day })} ${targetName} ${t("demo.logWatch")}`;
   }
 
-  return `Day ${stepResponse.day}: ${targetName} price held — no notification needed`;
+  return `${t("demo.logDay", { day: stepResponse.day })} ${targetName} ${t("demo.logPriceHeld")}`;
 }
 
-export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, onNotificationSent, onReset }) {
+export function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, onNotificationSent, onReset }) {
+  const t = useT();
   const [isConfirming, setIsConfirming] = useState(false);
   const [logs, setLogs] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
-  const [status, setStatus] = useState("Idle");
+  const [status, setStatus] = useState("idle");
   const [currentDay, setCurrentDay] = useState(0);
   const [maxDays, setMaxDays] = useState(6);
   const [error, setError] = useState("");
@@ -49,6 +52,28 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
   const [isPaused, setIsPaused] = useState(false);
   const stopRequestedRef = useRef(false);
   const isMountedRef = useRef(true);
+
+  const statusText = (() => {
+    switch (status) {
+      case "preparing":
+        return t("demo.preparing");
+      case "simulating":
+        return t("demo.simulating", { day: currentDay, total: maxDays });
+      case "complete":
+        return t("demo.complete");
+      case "paused":
+        return t("demo.pausedAt", { day: currentDay, total: maxDays });
+      case "stopped":
+        return t("demo.stopped");
+      case "failed":
+        return t("demo.failed");
+      case "reset":
+        return t("demo.resetSuccess");
+      case "idle":
+      default:
+        return t("demo.idle");
+    }
+  })();
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -80,17 +105,17 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
           setCurrentDay(nextDay);
           setMaxDays(limit);
           if (nextDay >= limit) {
-            setStatus("Demo complete");
+            setStatus("complete");
             setIsComplete(true);
             setIsPaused(false);
           } else {
-            setStatus(`Demo paused at day ${nextDay} of ${limit}`);
+            setStatus("paused");
             setIsPaused(true);
           }
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err.message || "Unable to load demo status.");
+          setError(err.message || t("demo.loadStatusError"));
         }
       }
     };
@@ -99,7 +124,7 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
     return () => {
       cancelled = true;
     };
-  }, [sellerId, isDemoSeller]);
+  }, [sellerId, isDemoSeller, t]);
 
   const handleReset = async () => {
     stopRequestedRef.current = true;
@@ -108,7 +133,7 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
     setLogs([]);
     setCurrentDay(0);
     setIsComplete(false);
-    setStatus("Demo reset");
+    setStatus("reset");
     setError("");
     try {
       await apiClient.resetDemo(sellerId);
@@ -116,7 +141,7 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
       await onReset?.();
     } catch (err) {
       if (!isMountedRef.current) return;
-      setError(err.message || "Unable to reset demo.");
+      setError(err.message || t("demo.resetError"));
     }
   };
 
@@ -129,7 +154,7 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
     setError("");
     setLogs([]);
     setIsComplete(false);
-    setStatus("Preparing demo...");
+    setStatus("preparing");
 
     try {
       let currentValue = resumeFromDay;
@@ -149,15 +174,15 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
         const nextDay = currentValue + 1;
         if (!isMountedRef.current) return;
         setCurrentDay(nextDay);
-        setStatus(`Day ${nextDay} of ${activeMaxDays} — simulating...`);
+        setStatus("simulating");
 
         const stepResponse = await apiClient.stepDemo(sellerId);
         if (!isMountedRef.current) return;
-        const line = buildLogLine(stepResponse);
+        const line = buildLogLine(stepResponse, t);
         setLogs((prev) => [...prev, line]);
 
         if (stepResponse?.notifications?.some((n) => n.sent)) {
-          setToast("📱 WhatsApp alert sent — check the WhatsApp Thread tab.");
+          setToast(t("demo.toastNotification"));
           onNotificationSent?.();
         }
 
@@ -167,13 +192,13 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
         if (currentValue >= activeMaxDays) {
           if (!isMountedRef.current) return;
           setIsComplete(true);
-          setStatus("Demo complete");
+          setStatus("complete");
           break;
         }
 
         if (stopRequestedRef.current) {
           if (!isMountedRef.current) return;
-          setStatus("Demo stopped");
+          setStatus("stopped");
           break;
         }
 
@@ -181,8 +206,8 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
       }
     } catch (err) {
       if (!isMountedRef.current) return;
-      setError(err.message || "Demo failed.");
-      setStatus("Demo failed");
+      setError(err.message || t("demo.failedError"));
+      setStatus("failed");
     } finally {
       if (isMountedRef.current) {
         setIsRunning(false);
@@ -193,13 +218,16 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
   if (!isDemoSeller) return null;
 
   return (
-    <div className="rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-amber-50 p-4 shadow-sm">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <div className="text-sm font-semibold text-indigo-700">Run Demo</div>
-          <p className="mt-1 text-sm text-gray-600">
-            Replay the demo seller’s week and watch the charts evolve day by day.
-          </p>
+    <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-jamuni/10 text-jamuni">
+              <Play className="h-4 w-4" />
+            </span>
+            <div className="text-sm font-semibold text-foreground">{t("demo.run")}</div>
+          </div>
+          <p className="text-sm text-muted-foreground">{t("demo.sub")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {!isRunning && !isComplete && !isConfirming && (
@@ -207,16 +235,18 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
               {isPaused ? (
                 <button
                   onClick={() => runDemo(currentDay)}
-                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                  className="inline-flex items-center gap-2 rounded-full bg-jamuni px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-jamuni/90"
                 >
-                  Resume Demo
+                  <Play className="h-4 w-4" />
+                  {t("demo.resume")}
                 </button>
               ) : (
                 <button
                   onClick={() => setIsConfirming(true)}
-                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                  className="inline-flex items-center gap-2 rounded-full bg-jamuni px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-jamuni/90"
                 >
-                  Run Demo
+                  <Play className="h-4 w-4" />
+                  {t("demo.run")}
                 </button>
               )}
             </>
@@ -226,61 +256,60 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
               onClick={() => {
                 stopRequestedRef.current = true;
               }}
-              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-background/70 px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
             >
-              Stop
+              <StopCircle className="h-4 w-4" />
+              {t("demo.stop")}
             </button>
           )}
           <button
             onClick={handleReset}
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="inline-flex items-center gap-2 rounded-full border border-border bg-background/70 px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
           >
-            Reset Demo
+            <RotateCcw className="h-4 w-4" />
+            {t("demo.reset")}
           </button>
         </div>
       </div>
 
       {isConfirming && (
-        <div className="mt-4 rounded-xl border border-indigo-200 bg-white/80 p-3 text-sm text-gray-700">
-          <p className="font-medium text-gray-900">
-            This will reset and replay the demo seller’s data for the current session.
-          </p>
-          <p className="mt-1 text-xs text-gray-500">
-            Any manual changes made during this session will be overwritten.
-          </p>
-          <div className="mt-3 flex gap-2">
+        <div className="mt-4 rounded-2xl border border-border bg-background/70 p-3 text-sm text-muted-foreground">
+          <p className="font-medium text-foreground">{t("demo.confirmReset")}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{t("demo.confirmSub")}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
             <button
               onClick={() => runDemo(0)}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+              className="inline-flex items-center gap-2 rounded-full bg-jamuni px-3 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-jamuni/90"
             >
-              Start demo replay
+              <Play className="h-4 w-4" />
+              {t("demo.startReplay")}
             </button>
             <button
               onClick={() => setIsConfirming(false)}
-              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="rounded-full border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
             >
-              Cancel
+              {t("demo.confirmCancel")}
             </button>
           </div>
         </div>
       )}
 
-      {(isRunning || status !== "Idle") && (
-        <div className="mt-4 rounded-xl border border-gray-200 bg-white/80 p-3">
-          <div className="flex items-center justify-between text-sm text-gray-700">
-            <span className="font-medium">{status}</span>
-            <span className="text-xs text-gray-500">Day {currentDay} of {maxDays}</span>
+      {(isRunning || status !== "idle") && (
+        <div className="mt-4 rounded-2xl border border-border bg-background/70 p-3">
+          <div className="flex items-center justify-between text-sm text-foreground">
+            <span className="font-medium">{statusText}</span>
+            <span className="text-xs text-muted-foreground">{t("demo.dayOf", { day: currentDay, total: maxDays })}</span>
           </div>
           {isRunning && (
-            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200">
-              <div className="h-full animate-pulse rounded-full bg-indigo-500" style={{ width: `${Math.min(100, (currentDay / Math.max(maxDays, 1)) * 100)}%` }} />
+            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div className="h-full animate-pulse rounded-full bg-jamuni" style={{ width: `${Math.min(100, (currentDay / Math.max(maxDays, 1)) * 100)}%` }} />
             </div>
           )}
         </div>
       )}
 
       {toast && (
-        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+        <div className="mt-3 rounded-lg border border-jamuni/20 bg-jamuni/10 px-3 py-2 text-sm font-medium text-jamuni">
           {toast}
         </div>
       )}
@@ -292,9 +321,9 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
       )}
 
       {logs.length > 0 && (
-        <div className="mt-4 rounded-xl border border-gray-200 bg-white/80 p-3">
-          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Demo log</div>
-          <ul className="mt-2 space-y-1 text-sm text-gray-700">
+        <div className="mt-4 rounded-2xl border border-border bg-background/70 p-3">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">{t("demo.logTitle")}</div>
+          <ul className="mt-2 space-y-1.5 text-sm text-muted-foreground">
             {logs.map((line, index) => (
               <li key={`${line}-${index}`}>
                 • {line}
@@ -305,8 +334,8 @@ export default function DemoRunner({ sellerId, isDemoSeller, onStepCompleted, on
       )}
 
       {isComplete && (
-        <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
-          Demo complete
+        <div className="mt-3 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">
+          {t("demo.complete")}
         </div>
       )}
     </div>
