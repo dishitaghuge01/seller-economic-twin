@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useT } from "../lib/i18n.jsx";
 
 const severityConfig = {
-  urgent: { pill: "bg-urgent-soft text-urgent", label: "URGENT" },
-  watch: { pill: "bg-watch-soft text-watch", label: "WATCH" },
-  safe: { pill: "bg-safe-soft text-safe", label: "SAFE" },
+  urgent: { bg: "bg-red-100", text: "text-red-700", label: "URGENT" },
+  watch: { bg: "bg-amber-100", text: "text-amber-700", label: "WATCH" },
+  safe: { bg: "bg-green-100", text: "text-green-700", label: "SAFE" },
 };
 
 function useFlashingValue({ skuId, value, previousValue, kind }) {
@@ -18,12 +17,12 @@ function useFlashingValue({ skuId, value, previousValue, kind }) {
 
     if (kind === "stock") {
       if (value === 0) {
-        setFlashClass("text-urgent scale-110 ring-2 ring-urgent/30 rounded-md px-1");
+        setFlashClass("text-red-600 scale-110 ring-2 ring-red-400 rounded-md px-1");
       } else if (value < previousValue) {
-        setFlashClass("text-watch scale-110 ring-2 ring-watch/30 rounded-md px-1");
+        setFlashClass("text-red-600 scale-110 ring-2 ring-red-300 rounded-md px-1");
       }
     } else if (kind === "price") {
-      setFlashClass("text-jamuni scale-110 ring-2 ring-jamuni/30 rounded-md px-1");
+      setFlashClass("text-indigo-600 scale-110 ring-2 ring-indigo-300 rounded-md px-1");
     }
 
     setIsFlashing(true);
@@ -38,8 +37,7 @@ function useFlashingValue({ skuId, value, previousValue, kind }) {
   return { isFlashing, flashClass };
 }
 
-function SkuCard({ sku, isSelected, onSelectSku, previousStock, previousPrice, flashedStockoutIds }) {
-  const t = useT();
+function SkuCard({ sku, isSelected, onSelectSku, previousStock, previousPrice, stockChangedToZero, flashedStockoutIds }) {
   const stockFeedback = useFlashingValue({
     skuId: sku.sku_id,
     value: sku.current_stock,
@@ -55,38 +53,49 @@ function SkuCard({ sku, isSelected, onSelectSku, previousStock, previousPrice, f
 
   const sev = severityConfig[sku.last_action?.stockout_severity] || severityConfig.safe;
   const isUrgent = sku.last_action?.stockout_severity === "urgent";
-  const cardFlashClass = flashedStockoutIds.has(sku.sku_id) ? "border-urgent/40 bg-urgent-soft/40" : "";
+  const isOutOfStockFlash = flashedStockoutIds.has(sku.sku_id);
+  const cardFlashClass = isOutOfStockFlash ? "border-red-400 bg-red-50" : "";
+  const badgePulseClass = isUrgent ? "animate-pulse" : "";
 
   return (
     <button
+      key={sku.sku_id}
       onClick={() => onSelectSku(sku.sku_id)}
-      className={`w-[240px] shrink-0 rounded-2xl border bg-card p-4 text-left transition ${isSelected ? "border-jamuni ring-2 ring-jamuni/20" : "border-border hover:border-jamuni/40"} ${cardFlashClass}`}
+      className={
+        "text-left min-w-[240px] flex-none bg-white rounded-xl p-4 shadow-sm border-2 transition-all " +
+        (isSelected
+          ? "border-gray-900"
+          : "border-transparent hover:border-gray-200") +
+        ` ${cardFlashClass}`
+      }
     >
-      <div className="flex items-start justify-between gap-2">
-        <h3 className="font-display text-base font-semibold leading-tight line-clamp-2">{sku.sku_name}</h3>
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="font-semibold text-gray-900 text-sm">{sku.sku_name}</div>
+        <span
+          className={`text-xs font-semibold px-2 py-0.5 rounded-full ${sev.bg} ${sev.text} ${badgePulseClass}`}
+        >
+          {sev.label}
+        </span>
       </div>
-      <div className={`mt-2 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide ${sev.pill}`}>
-        {sev.label}
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-2">
+      <div className="flex items-end justify-between">
         <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t("sku.stock")}</p>
-          <p className={`font-display text-2xl font-semibold tabular-nums ${stockFeedback.isFlashing ? stockFeedback.flashClass : ""}`}>
+          <div className="text-xs text-gray-500">Stock</div>
+          <div className={`text-2xl font-bold text-gray-900 ${stockFeedback.isFlashing ? stockFeedback.flashClass : ""}`}>
             {sku.current_stock}
-          </p>
+          </div>
         </div>
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t("sku.price")}</p>
-          <p className={`font-display text-2xl font-semibold tabular-nums ${priceFeedback.isFlashing ? priceFeedback.flashClass : ""}`}>
+        <div className="text-right">
+          <div className="text-xs text-gray-500">Price</div>
+          <div className={`text-lg font-semibold text-gray-800 ${priceFeedback.isFlashing ? priceFeedback.flashClass : ""}`}>
             ₹{sku.current_chosen_price}
-          </p>
+          </div>
         </div>
       </div>
     </button>
   );
 }
 
-export function SKUSummaryCards({ skus, selectedSkuId, onSelectSku }) {
+export default function SKUSummaryCards({ skus, selectedSkuId, onSelectSku }) {
   const previousValuesRef = useRef(new Map());
   const [flashedStockoutIds, setFlashedStockoutIds] = useState(new Set());
 
@@ -129,22 +138,18 @@ export function SKUSummaryCards({ skus, selectedSkuId, onSelectSku }) {
   }, [skuStates]);
 
   return (
-    <div className="-mx-4 overflow-x-auto px-4 pb-1">
-      <div className="flex snap-x snap-mandatory gap-3">
-        {skuStates.map(({ sku, previousStock, previousPrice }) => (
-          <SkuCard
-            key={sku.sku_id}
-            sku={sku}
-            isSelected={sku.sku_id === selectedSkuId}
-            onSelectSku={onSelectSku}
-            previousStock={previousStock}
-            previousPrice={previousPrice}
-            flashedStockoutIds={flashedStockoutIds}
-          />
-        ))}
-      </div>
+    <div className="flex gap-3 overflow-x-auto flex-nowrap md:flex-wrap md:overflow-visible pb-2">
+      {skuStates.map(({ sku, previousStock, previousPrice }) => (
+        <SkuCard
+          key={sku.sku_id}
+          sku={sku}
+          isSelected={sku.sku_id === selectedSkuId}
+          onSelectSku={onSelectSku}
+          previousStock={previousStock}
+          previousPrice={previousPrice}
+          flashedStockoutIds={flashedStockoutIds}
+        />
+      ))}
     </div>
   );
 }
-
-export default SKUSummaryCards;

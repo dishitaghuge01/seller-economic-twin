@@ -1,20 +1,33 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
-import { RefreshCw, AlertTriangle } from "lucide-react";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  ReferenceLine,
+} from "recharts";
 import apiClient from "../apiClient.js";
 import LoadingSpinner from "./LoadingSpinner.jsx";
-import { useT } from "../lib/i18n.jsx";
 
 const severityColors = {
-  urgent: "var(--urgent)",
-  watch: "var(--watch)",
-  safe: "var(--safe)",
+  urgent: "#dc2626",
+  watch: "#d97706",
+  safe: "#16a34a",
 };
 
-export function ForecastFanChart({ skuId, sellerId, refreshKey }) {
-  const t = useT();
+const loadingMessages = [
+  "Running Thompson Sampling...",
+  "Simulating demand paths...",
+  "Estimating stockout probability...",
+  "Building the forecast fan...",
+];
+
+export default function ForecastFanChart({ skuId, sellerId, refreshKey }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [messageIndex, setMessageIndex] = useState(0);
   const requestIdRef = useRef(0);
 
   const load = useCallback(() => {
@@ -38,9 +51,20 @@ export function ForecastFanChart({ skuId, sellerId, refreshKey }) {
     load();
   }, [load, refreshKey]);
 
-  if (loading || !data) {
-    return <LoadingSpinner messages={[t("forecast.loading")]} heightClass="h-80" />;
+  useEffect(() => {
+    if (!loading) return;
+
+    const interval = window.setInterval(() => {
+      setMessageIndex((value) => (value + 1) % loadingMessages.length);
+    }, 900);
+
+    return () => window.clearInterval(interval);
+  }, [loading]);
+
+  if (loading) {
+    return <LoadingSpinner messages={loadingMessages} heightClass="h-80" />;
   }
+  if (!data) return null;
 
   const color = severityColors[data.severity] || severityColors.safe;
   const chartData = data.fan_chart.map((r) => ({
@@ -49,58 +73,85 @@ export function ForecastFanChart({ skuId, sellerId, refreshKey }) {
   }));
 
   return (
-    <div className="space-y-3">
-      {data.severity === "urgent" && (
-        <div className="flex items-start gap-2 rounded-lg bg-urgent-soft p-3 text-sm text-urgent">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <div>
-            <p className="font-semibold">{t("forecast.restockUrgent")}</p>
-            <p className="text-xs opacity-90">{t("forecast.stockoutLikely", { days: data.median_stockout_day })}</p>
-          </div>
+    <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h3 className="font-semibold text-gray-900">Stockout Forecast</h3>
+          <p className="text-xs text-gray-500">Likelihood of running out over 30 days</p>
         </div>
-      )}
-
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">{t("forecast.30day")}</p>
-        <button onClick={load} className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs hover:bg-muted">
-          <RefreshCw className="h-3 w-3" /> {t("forecast.refresh")}
+        <button
+          onClick={load}
+          className="text-xs px-3 py-1.5 rounded-full border border-gray-200 hover:bg-gray-50"
+        >
+          Refresh
         </button>
       </div>
 
-      <div className="h-52 w-full">
-        <ResponsiveContainer>
-          <AreaChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+      {data.severity === "urgent" && (
+        <div className="mb-3 rounded-lg bg-red-50 border border-red-200 text-red-800 px-3 py-2 text-sm">
+          ⚠ Restock recommended within {data.stockout_ci_low} days.
+        </div>
+      )}
+
+      <div className="h-64 w-full min-w-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={chartData} margin={{ top: 24, right: 10, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id={`grad-${skuId}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={color} stopOpacity={0.45} />
-                <stop offset="100%" stopColor={color} stopOpacity={0.05} />
+                <stop offset="0%" stopColor={color} stopOpacity={1} />
+                <stop offset="100%" stopColor={color} stopOpacity={0.2} />
               </linearGradient>
             </defs>
-            <XAxis dataKey="day" tickFormatter={(value) => `D${value}`} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-            <Tooltip formatter={(value) => [`${value}%`, t("forecast.pStockout")]} labelFormatter={(label) => `${t("forecast.dayLabel")} ${label}`} contentStyle={{ borderRadius: 8, border: "1px solid var(--border)", fontSize: 12 }} />
-            <ReferenceLine y={50} stroke="var(--muted-foreground)" strokeDasharray="3 3" label={{ value: "50%", fontSize: 10, fill: "var(--muted-foreground)", position: "right" }} />
-            <Area type="monotone" dataKey="pct" stroke={color} strokeWidth={2} fill={`url(#grad-${skuId})`} />
+            <XAxis
+              dataKey="day"
+              tick={{ fontSize: 11 }}
+              ticks={[1, 5, 10, 15, 20, 25, 30]}
+              tickFormatter={(v) => `Day ${v}`}
+            />
+            <YAxis
+              tick={{ fontSize: 11 }}
+              domain={[0, 100]}
+              tickFormatter={(v) => `${v}%`}
+            />
+            <Tooltip
+              formatter={(v) => [`${v}%`, "P(stockout)"]}
+              labelFormatter={(l) => `Day ${l}`}
+            />
+            <ReferenceLine
+              y={50}
+              stroke="#6b7280"
+              strokeDasharray="4 4"
+              label={{ value: "50% likelihood", position: "insideTopRight", fontSize: 10 }}
+            />
+            <Area
+              type="monotone"
+              dataKey="pct"
+              stroke={color}
+              strokeWidth={2}
+              fill={`url(#grad-${skuId})`}
+            />
           </AreaChart>
         </ResponsiveContainer>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
-        <div className="rounded-lg border border-border bg-card p-3">
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t("forecast.likelyDay")}</p>
-          <p className="mt-1 font-display text-xl font-semibold tabular-nums">{t("forecast.dayLabel")} {data.median_stockout_day}</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+        <div className="rounded-lg bg-gray-50 p-3">
+          <div className="text-xs text-gray-500">Most likely stockout</div>
+          <div className="font-semibold text-gray-900">Day {data.median_stockout_day}</div>
         </div>
-        <div className="rounded-lg border border-border bg-card p-3">
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t("forecast.range80")}</p>
-          <p className="mt-1 font-display text-xl font-semibold tabular-nums">{data.stockout_ci_low} – {data.stockout_ci_high}</p>
+        <div className="rounded-lg bg-gray-50 p-3">
+          <div className="text-xs text-gray-500">80% range</div>
+          <div className="font-semibold text-gray-900">
+            Day {data.stockout_ci_low} – Day {data.stockout_ci_high}
+          </div>
         </div>
-        <div className="rounded-lg border border-border bg-card p-3">
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t("forecast.ordersPerDay")}</p>
-          <p className="mt-1 font-display text-xl font-semibold tabular-nums">{data.lambda_estimated.toFixed(1)}</p>
+        <div className="rounded-lg bg-gray-50 p-3">
+          <div className="text-xs text-gray-500">Based on</div>
+          <div className="font-semibold text-gray-900">
+            {data.lambda_estimated} orders/day average
+          </div>
         </div>
       </div>
     </div>
   );
 }
-
-export default ForecastFanChart;

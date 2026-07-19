@@ -8,11 +8,9 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
-import { Toaster } from "./components/ui/sonner.tsx";
 
 import appCss from "../styles.css?url";
 import { reportError } from "../lib/error-reporting";
-import { LanguageProvider } from "../lib/i18n.jsx";
 
 function NotFoundComponent() {
   return (
@@ -79,14 +77,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "उदय Uday" },
+      { title: "Seller Economic Twin" },
       {
         name: "description",
         content:
           "AI pricing and inventory agent for sellers — dashboard and WhatsApp-style chat.",
       },
       { name: "theme-color", content: "#16a34a" },
-      { property: "og:title", content: "उदय Uday" },
+      { property: "og:title", content: "Seller Economic Twin" },
       {
         property: "og:description",
         content: "AI pricing and inventory agent for sellers.",
@@ -126,11 +124,8 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <LanguageProvider>
-        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-        <Outlet />
-        <Toaster position="top-right" />
-      </LanguageProvider>
+      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+      <Outlet />
     </QueryClientProvider>
   );
 }
