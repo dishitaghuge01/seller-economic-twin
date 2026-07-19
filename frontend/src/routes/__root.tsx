@@ -95,6 +95,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "twitter:card", content: "summary_large_image" },
     ],
     links: [
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Yatra+One&family=Mukta:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600&display=swap",
+      },
       { rel: "stylesheet", href: appCss },
       { rel: "icon", href: "/icon-192.png", type: "image/png" },
       { rel: "manifest", href: "/manifest.json" },
